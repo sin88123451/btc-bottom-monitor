@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HYPE底値モニター</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: 計器盤。上に判定と確率、次に指標の信号表、その下に長期チャート、検証と記録は下段。1カラム中心、広い画面では2列に分かれる */
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --fg: #14171c;
+  --fg-2: #4a515c;
+  --muted: #7a828e;
+  --line: #e1e4e9;
+  --accent: #c27a12;           /* ビットコインの琥珀 */
+  --series-1: #2a78d6;         /* 価格 */
+  --series-2: #eb6834;         /* 実現価格 */
+  --zone: rgba(27, 175, 122, .16);
+  --good: #0ca30c; --warn: #fab219; --crit: #d03b3b;
+  --good-ink: #0a7a0a; --warn-ink: #8a5d00; --crit-ink: #b02f2f;
+  --chip-bg: #eef0f3;
+  --f-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+  --f-num: "IBM Plex Mono", ui-monospace, "Consolas", monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121418; --panel: #1b1e24; --fg: #f1f2f4; --fg-2: #c0c5cd; --muted: #8b929d; --line: #2c3139;
+  --accent: #e9a53b; --series-1: #3987e5; --series-2: #d95926; --zone: rgba(25, 158, 112, .22);
+  --good-ink: #4fd04f; --warn-ink: #fab219; --crit-ink: #ff7b7b; --chip-bg: #262a31; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #121418; --panel: #1b1e24; --fg: #f1f2f4; --fg-2: #c0c5cd; --muted: #8b929d; --line: #2c3139;
+  --accent: #e9a53b; --series-1: #3987e5; --series-2: #d95926; --zone: rgba(25, 158, 112, .22);
+  --good-ink: #4fd04f; --warn-ink: #fab219; --crit-ink: #ff7b7b; --chip-bg: #262a31; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 15px; line-height: 1.7; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 64px; display: grid; gap: 20px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; }
+h1 { font-size: 1.6rem; margin: 0; letter-spacing: .02em; text-wrap: balance; }
+h1 .sym { color: var(--accent); }
+.assets { display: flex; flex-wrap: wrap; gap: 6px; }
+.assets a { font-family: var(--f-num); font-size: .85rem; font-weight: 600; padding: 4px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--fg-2); text-decoration: none; }
+.assets a[aria-current="page"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.assets a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.asset-note { margin: 0; color: var(--fg-2); font-size: .86rem; max-width: 80ch; }
+h2 { font-size: 1.08rem; margin: 0 0 4px; text-wrap: balance; }
+.sub { color: var(--muted); font-size: .85rem; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; min-width: 0; }
+.lead { color: var(--fg-2); font-size: .9rem; margin: 0 0 14px; max-width: 68ch; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+@media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } }
+
+/* 判定 */
+.verdict { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 0; padding: 0; overflow: hidden; }
+@media (max-width: 760px) { .verdict { grid-template-columns: 1fr; } }
+.verdict > div { padding: 20px; min-width: 0; }
+.verdict > div + div { border-left: 1px solid var(--line); }
+@media (max-width: 760px) { .verdict > div + div { border-left: 0; border-top: 1px solid var(--line); } }
+.label { font-size: .78rem; color: var(--muted); letter-spacing: .06em; }
+.big { font-family: var(--f-num); font-size: 2.6rem; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.big small { font-size: 1rem; color: var(--muted); font-weight: 400; margin-left: 4px; }
+.state { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 1.25rem; margin: 6px 0 4px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.meter { position: relative; height: 8px; border-radius: 4px; background: var(--chip-bg); margin-top: 10px; overflow: hidden; }
+.meter i { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--accent); }
+.note { font-size: .82rem; color: var(--fg-2); margin: 8px 0 0; }
+
+/* 指標表 */
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: .76rem; color: var(--muted); font-weight: 500; letter-spacing: .05em; white-space: nowrap; }
+td.r, th.r { text-align: right; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 10px; border-radius: 999px; font-size: .78rem; font-weight: 700; white-space: nowrap; background: var(--chip-bg); }
+.pill.on { color: var(--good-ink); }
+.pill.off { color: var(--muted); }
+.pill.na { color: var(--muted); font-weight: 400; }
+.pill .dot { width: 8px; height: 8px; }
+.ind-name { font-weight: 700; }
+.ind-desc { color: var(--fg-2); font-size: .8rem; display: block; max-width: 46ch; }
+
+/* チャート */
+.chart-box { position: relative; height: 340px; }
+.chart-box.short { height: 220px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .8rem; color: var(--fg-2); margin: 0 0 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.sw.box { height: 12px; width: 12px; border-radius: 2px; }
+.ranges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.ranges button { font: inherit; font-size: .8rem; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--fg-2); cursor: pointer; }
+.ranges button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.ranges button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+details { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 12px; }
+summary { cursor: pointer; font-weight: 700; font-size: .9rem; }
+.glossary { display: grid; gap: 14px; margin-top: 12px; }
+.glossary div { min-width: 0; }
+.glossary b { display: block; }
+.glossary p { margin: 2px 0 0; color: var(--fg-2); font-size: .86rem; max-width: 72ch; }
+.empty { color: var(--muted); font-size: .88rem; padding: 12px 0; }
+footer { color: var(--muted); font-size: .78rem; max-width: 80ch; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1><span class="sym" id="sym">₿</span> <span id="ttl">BTC底値モニター</span></h1>
+    <div class="sub">データ日 <span class="num" id="dataDate"></span>・更新 <span class="num" id="generated"></span>・モデル <span class="num" id="ver"></span>・毎週月曜更新</div>
+  </header>
+  <nav class="assets" aria-label="銘柄の切り替え">
+    <a href="index.html" data-a="btc">BTC</a><a href="eth.html" data-a="eth">ETH</a><a href="xrp.html" data-a="xrp">XRP</a><a href="sol.html" data-a="sol">SOL</a><a href="hype.html" data-a="hype">HYPE</a>
+  </nav>
+  <p class="asset-note" id="assetNote" hidden></p>
+
+  <section class="panel verdict" aria-label="現在の判定">
+    <div>
+      <div class="label">現在の判定</div>
+      <div class="state" id="state"></div>
+      <p class="note" id="stateNote"></p>
+    </div>
+    <div>
+      <div class="label">底値圏の確率（モデル）</div>
+      <div class="big" id="prob"></div>
+      <div class="meter" aria-hidden="true"><i id="probBar"></i></div>
+      <p class="note" id="probNote">5指標を組み合わせたロジスティック回帰。過去の別サイクルで検証済みの式です。</p>
+    </div>
+    <div>
+      <div class="label">シグナル点灯数</div>
+      <div class="big" id="sig"></div>
+      <p class="note" id="sigNote"></p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>指標と現在値</h2>
+    <p class="lead" id="indLead">5つの中核指標が「点灯」すると底値圏に近いサインです。恐怖・強欲指数は2018年以降しかデータがないため、確率の計算には入れず参考表示にしています。</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>指標</th><th class="r">現在値</th><th class="r">底値圏の目安</th><th>状態</th></tr></thead>
+      <tbody id="indTable"></tbody>
+    </table></div>
+    <details>
+      <summary>各指標の読み方</summary>
+      <div class="glossary">
+        <div data-for="mvrv"><b>MVRV（時価総額 ÷ 実現時価総額）</b><p>全保有者の平均含み益の倍率です。1.0を下回ると、平均的な保有者が含み損の状態です。2015年、2018年、2022年の大底はすべて1.0未満でした。</p></div>
+        <div data-for="mvrv"><b>実現価格</b><p>すべてのコインが最後に動いたときの価格の平均で、市場全体の平均取得単価に当たります。価格がここまで下がると底値圏です。MVRV = 価格 ÷ 実現価格 の関係です。</p></div>
+        <div><b>メイヤー倍率（価格 ÷ 200日移動平均）</b><p>長期平均からどれだけ離れているかを示します。BTCは0.8未満、値動きの大きいアルトコインは0.7未満を売られすぎの目安にしています。過去の大底では0.4〜0.7まで下がりました。</p></div>
+        <div><b>最高値からの下落率</b><p>BTCの過去の弱気相場は最高値から77〜86%、アルトコインは85〜95%下げて底を付けました。目安はBTCが−65%、アルトコインが−80%です。今回は機関投資家の参入で下げ幅が浅くなる可能性があります。</p></div>
+        <div data-for="btc"><b>ハッシュリボン</b><p>採掘能力（ハッシュレート）の30日平均が60日平均を下回った状態です。採算が合わなくなったマイナーが撤退・売却している局面で、底の近くでよく起きます。</p></div>
+        <div data-for="btc"><b>サイクル時期</b><p>最高値から330〜450日後で、かつ30%以上下げている状態です。過去3回の底は最高値から363〜410日後でした。今回の最高値は2025年10月6日です。</p></div>
+        <div data-for="alt"><b>サイクル時期（BTC基準）</b><p>ビットコインの最高値から330〜450日後の期間です。アルトコインの大底は、ほぼビットコインの大底と同じ時期に来てきました（2018年12月、2022年6〜11月）。そのため、アルトコインもビットコインの暦で判定しています。BTCの今回の最高値は2025年10月6日です。</p></div>
+        <div><b>恐怖・強欲指数（7日平均）</b><p>価格変動、出来高、SNS、検索などから作る市場心理の指数（0〜100）です。20以下は極度の恐怖で、投げ売りが出やすい状態です。</p></div>
+      </div>
+    </details>
+  </section>
+
+  <section class="panel">
+    <h2 id="priceTitle">価格と実現価格（対数目盛）</h2>
+    <p class="lead" id="priceLead">緑の帯は、後から振り返って実際に底値圏だった期間です（前後1年の最安値から1.5倍以内）。価格が実現価格に近づくほど、底に近い状態です。</p>
+    <div class="ranges" role="group" aria-label="表示期間">
+      <button type="button" data-range="all" aria-pressed="false">全期間</button>
+      <button type="button" data-range="8" aria-pressed="true">8年</button>
+      <button type="button" data-range="4" aria-pressed="false">4年</button>
+      <button type="button" data-range="1" aria-pressed="false">1年</button>
+    </div>
+    <div class="legend"><span><i class="sw" style="background:var(--series-1)"></i>価格（米ドル）</span><span id="realLegend"><i class="sw" style="background:var(--series-2)"></i>実現価格</span><span><i class="sw box" style="background:var(--zone)"></i>実際の底値圏</span></div>
+    <div class="chart-box"><canvas id="priceChart" aria-label="価格と実現価格の推移"></canvas></div>
+  </section>
+
+  <section class="panel">
+    <h2>底値圏の確率の推移</h2>
+    <p class="lead" id="probLead">答えが出ている期間は、そのサイクルを学習に使わないモデルで計算した値です。そのため「当時予測していたら何%と出たか」に近い数字になっています。直近1年はまだ答えが出ていません。</p>
+    <div class="chart-box short"><canvas id="probChart" aria-label="底値圏確率の推移"></canvas></div>
+  </section>
+
+  <div class="grid2">
+    <section class="panel">
+      <h2>点灯数ごとの過去の的中率</h2>
+      <p class="lead" id="scoreLead">2011年以降の各日について、点灯数ごとに「実際に底値圏だった日の割合」を集計しました。濃い棒が今の点灯数です。</p>
+      <div class="chart-box short"><canvas id="scoreChart" aria-label="点灯数別の的中率"></canvas></div>
+      <div class="tbl-wrap"><table><thead><tr><th>点灯数</th><th class="r">日数</th><th class="r">的中率</th></tr></thead><tbody id="scoreTable"></tbody></table></div>
+    </section>
+    <section class="panel">
+      <h2>モデルの成績</h2>
+      <p class="lead" id="perfLead">半減期サイクルごとに1つずつ抜いて学習し、抜いた時代を当てられるかを試しました。</p>
+      <div class="tbl-wrap"><table><tbody id="perfTable"></tbody></table></div>
+      <h2 style="margin-top:16px">確率帯ごとの的中率</h2>
+      <p class="lead">「確率○%」と出た日が、実際に底値圏だった割合です。確率と的中率が近いほど、数字を信用できます。</p>
+      <div class="tbl-wrap"><table><thead><tr><th>確率帯</th><th class="r">日数</th><th class="r">実際の的中率</th></tr></thead><tbody id="calTable"></tbody></table></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>毎週の予測記録と答え合わせ</h2>
+    <p class="lead">毎週の予測を記録しています。365日たつと前後1年の最安値が確定し、自動で答え合わせをします。それまでは、記録後の最安値と今の騰落率を途中経過として表示します。</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>記録日</th><th class="r">価格</th><th class="r">確率</th><th class="r">点灯</th><th class="r">記録後の最安値</th><th class="r">現在の騰落率</th><th>答え合わせ</th></tr></thead>
+      <tbody id="predTable"></tbody>
+    </table></div>
+    <p class="note" id="liveScore"></p>
+  </section>
+
+  <section class="panel">
+    <h2>過去の週次記録</h2>
+    <p class="lead" id="histLead">2012年以降の毎週月曜の指標値と確率、実際に底値圏だったかの答えです。年を選ぶと切り替わります。確率は、その時代を学習に使わないモデルで計算した検証値です。</p>
+    <div class="ranges" role="group" aria-label="年の選択" id="yearBtns"></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>日付</th><th class="r">価格</th><th class="r">実現価格</th><th class="r">MVRV</th><th class="r">メイヤー倍率</th><th class="r">下落率</th><th class="r">恐怖強欲</th><th class="r">点灯</th><th class="r">確率</th><th>実際</th></tr></thead>
+      <tbody id="histTable"></tbody>
+    </table></div>
+  </section>
+
+  <section class="panel">
+    <h2>改善の履歴</h2>
+    <div class="tbl-wrap"><table><thead><tr><th>日付</th><th>版</th><th>変更内容</th></tr></thead><tbody id="logTable"></tbody></table></div>
+  </section>
+
+  <footer>
+    データ：Coin Metrics Community API（価格・MVRV・ハッシュレート）、alternative.me（恐怖・強欲指数）。確率は過去の傾向から計算した目安で、将来の値動きを保証するものではありません。投資判断はご自身で行ってください。
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const D = {"asset": {"code": "hype", "name": "ハイパーリキッド", "symbol": "HYPE", "note": "2024年12月からのデータで、まだ1度も弱気相場を経験していません。確率は他の銘柄の過去データを当てはめた参考値で、HYPE自身での答え合わせはできていません。"}, "generated": "2026-10-02 12:57", "data_date": "2026-10-01", "model_version": "alt-v1.0", "config": {"model_version": "v1.0", "window_days": 365, "bottom_zone_mult": 1.5, "thresholds": {"mvrv_max": 1.0, "mayer_max": 0.8, "drawdown_max": -0.65, "fng_max": 20, "ath_days_min": 330, "ath_days_max": 450}}, "n_signals": 3, "signal_count": 1, "current": {"price": 87.5725067723774, "realized": null, "drawdown": -0.09847004969323714}, "prob": 0.00994578694691166, "indicators": [{"name": "メイヤー倍率", "desc": "価格 ÷ 200日移動平均", "value": "1.46", "threshold": "≤ 0.7", "state": "off"}, {"name": "最高値からの下落率", "desc": "最高値 $97.14（2026-09-22）", "value": "-9.8%", "threshold": "≤ -80%", "state": "off"}, {"name": "サイクル時期（BTC基準）", "desc": "ビットコインの最高値からの日数", "value": "360日", "threshold": "330〜450日", "state": "on"}, {"name": "恐怖・強欲指数", "desc": "7日平均（市場全体・参考・確率には不使用）", "value": "72", "threshold": "≤ 20", "state": "off"}], "pool": ["BTC", "ETH", "XRP", "SOL"], "model": {"weights": {"切片": -5.628392135946975, "log(メイヤー倍率)": -1.6709731942743224, "最高値からの下落率": -5.243187445639553, "サイクル時期（BTC基準）": 1.1447779634669866}, "auc": null, "brier_model": null, "brier_base": null, "base_rate": null, "n_train": 0, "calibration": [{"range": "0-20%", "n": 0, "hit": null}, {"range": "20-40%", "n": 0, "hit": null}, {"range": "40-60%", "n": 0, "hit": null}, {"range": "60-80%", "n": 0, "hit": null}, {"range": "80-100%", "n": 0, "hit": null}], "held_out": false}, "scorecard": [{"count": 0, "days": 9469, "hit": 0.06114690041187031}, {"count": 1, "days": 2973, "hit": 0.2976791120080727}, {"count": 2, "days": 1139, "hit": 0.3687445127304653}, {"count": 3, "days": 289, "hit": 0.7647058823529411}], "history": [{"d": "2025-06-30", "price": 39.5740709178509, "realized": null, "mvrv": null, "mayer": 1.648, "dd": -0.07, "prob": 0.0022, "oos": false, "label": null, "fng": 67.0, "sig": 0}, {"d": "2025-07-07", "price": 38.6336027805722, "realized": null, "mvrv": null, "mayer": 1.575, "dd": -0.092, "prob": 0.0027, "oos": false, "label": null, "fng": 68.4, "sig": 0}, {"d": "2025-07-14", "price": 47.3785369341647, "realized": null, "mvrv": null, "mayer": 1.889, "dd": -0.025, "prob": 0.0014, "oos": false, "label": null, "fng": 71.4, "sig": 0}, {"d": "2025-07-21", "price": 44.4388117235663, "realized": null, "mvrv": null, "mayer": 1.725, "dd": -0.085, "prob": 0.0023, "oos": false, "label": null, "fng": 72.4, "sig": 0}, {"d": "2025-07-28", "price": 43.5718558879637, "realized": null, "mvrv": null, "mayer": 1.646, "dd": -0.103, "prob": 0.0027, "oos": false, "label": null, "fng": 72.4, "sig": 0}, {"d": "2025-08-04", "price": 38.8181836820286, "realized": null, "mvrv": null, "mayer": 1.433, "dd": -0.201, "prob": 0.0056, "oos": false, "label": null, "fng": 65.1, "sig": 0}, {"d": "2025-08-11", "price": 43.212140352241, "realized": null, "mvrv": null, "mayer": 1.557, "dd": -0.111, "prob": 0.0031, "oos": false, "label": null, "fng": 65.1, "sig": 0}, {"d": "2025-08-18", "price": 43.4178397424065, "realized": null, "mvrv": null, "mayer": 1.521, "dd": -0.106, "prob": 0.0031, "oos": false, "label": null, "fng": 65.1, "sig": 0}, {"d": "2025-08-25", "price": 43.1135424056602, "realized": null, "mvrv": null, "mayer": 1.476, "dd": -0.113, "prob": 0.0034, "oos": false, "label": null, "fng": 51.4, "sig": 0}, {"d": "2025-09-01", "price": 42.9503322235357, "realized": null, "mvrv": null, "mayer": 1.434, "dd": -0.12, "prob": 0.0037, "oos": false, "label": null, "fng": 47.1, "sig": 0}, {"d": "2025-09-08", "price": 50.8107913350052, "realized": null, "mvrv": null, "mayer": 1.654, "dd": 0.0, "prob": 0.0015, "oos": false, "label": null, "fng": 49.4, "sig": 0}, {"d": "2025-09-15", "price": 53.9443970304993, "realized": null, "mvrv": null, "mayer": 1.693, "dd": -0.053, "prob": 0.002, "oos": false, "label": null, "fng": 52.6, "sig": 0}, {"d": "2025-09-22", "price": 47.3051371376342, "realized": null, "mvrv": null, "mayer": 1.428, "dd": -0.189, "prob": 0.0053, "oos": false, "label": null, "fng": 50.3, "sig": 0}, {"d": "2025-09-29", "price": 46.277147038241, "realized": null, "mvrv": null, "mayer": 1.353, "dd": -0.207, "prob": 0.0064, "oos": false, "label": null, "fng": 39.9, "sig": 0}, {"d": "2025-10-06", "price": 47.5711560689143, "realized": null, "mvrv": null, "mayer": 1.344, "dd": -0.185, "prob": 0.0057, "oos": false, "label": null, "fng": 63.1, "sig": 0}, {"d": "2025-10-13", "price": 42.7441879213136, "realized": null, "mvrv": null, "mayer": 1.177, "dd": -0.267, "prob": 0.011, "oos": false, "label": null, "fng": 50.4, "sig": 0}, {"d": "2025-10-20", "price": 38.0002499149108, "realized": null, "mvrv": null, "mayer": 1.022, "dd": -0.349, "prob": 0.0211, "oos": false, "label": null, "fng": 29.0, "sig": 0}, {"d": "2025-10-27", "price": 46.3813177634811, "realized": null, "mvrv": null, "mayer": 1.214, "dd": -0.205, "prob": 0.0076, "oos": false, "label": null, "fng": 34.9, "sig": 0}, {"d": "2025-11-03", "price": 39.9582583457774, "realized": null, "mvrv": null, "mayer": 1.019, "dd": -0.315, "prob": 0.0179, "oos": false, "label": null, "fng": 39.4, "sig": 0}, {"d": "2025-11-10", "price": 41.6735410162803, "realized": null, "mvrv": null, "mayer": 1.042, "dd": -0.286, "prob": 0.0148, "oos": false, "label": null, "fng": 23.7, "sig": 0}, {"d": "2025-11-17", "price": 38.7127807033769, "realized": null, "mvrv": null, "mayer": 0.952, "dd": -0.337, "prob": 0.0223, "oos": false, "label": null, "fng": 16.4, "sig": 0}, {"d": "2025-11-24", "price": 33.8694959785414, "realized": null, "mvrv": null, "mayer": 0.823, "dd": -0.42, "prob": 0.043, "oos": false, "label": null, "fng": 13.4, "sig": 0}, {"d": "2025-12-01", "price": 31.1841996161731, "realized": null, "mvrv": null, "mayer": 0.752, "dd": -0.466, "prob": 0.0623, "oos": false, "label": null, "fng": 23.1, "sig": 0}, {"d": "2025-12-08", "price": 29.4496054452074, "realized": null, "mvrv": null, "mayer": 0.708, "dd": -0.495, "prob": 0.0792, "oos": false, "label": null, "fng": 24.0, "sig": 0}, {"d": "2025-12-15", "price": 27.542365970769, "realized": null, "mvrv": null, "mayer": 0.666, "dd": -0.528, "prob": 0.1016, "oos": false, "label": null, "fng": 23.7, "sig": 1}, {"d": "2025-12-22", "price": 24.8906981031492, "realized": null, "mvrv": null, "mayer": 0.607, "dd": -0.573, "prob": 0.1435, "oos": false, "label": null, "fng": 17.9, "sig": 1}, {"d": "2025-12-29", "price": 25.7418740865915, "realized": null, "mvrv": null, "mayer": 0.634, "dd": -0.559, "prob": 0.1259, "oos": false, "label": null, "fng": 23.1, "sig": 1}, {"d": "2026-01-05", "price": 26.6996628022075, "realized": null, "mvrv": null, "mayer": 0.666, "dd": -0.542, "prob": 0.1085, "oos": false, "label": null, "fng": 24.6, "sig": 1}, {"d": "2026-01-12", "price": 23.7343261785065, "realized": null, "mvrv": null, "mayer": 0.598, "dd": -0.593, "prob": 0.16, "oos": false, "label": null, "fng": 31.7, "sig": 1}, {"d": "2026-01-19", "price": 23.7144064680542, "realized": null, "mvrv": null, "mayer": 0.605, "dd": -0.594, "prob": 0.1577, "oos": false, "label": null, "fng": 46.7, "sig": 1}, {"d": "2026-01-26", "price": 24.9604442166543, "realized": null, "mvrv": null, "mayer": 0.647, "dd": -0.572, "prob": 0.1302, "oos": false, "label": null, "fng": 24.3, "sig": 1}, {"d": "2026-02-02", "price": 33.4597895587083, "realized": null, "mvrv": null, "mayer": 0.879, "dd": -0.427, "prob": 0.0401, "oos": false, "label": null, "fng": 21.1, "sig": 0}, {"d": "2026-02-09", "price": 31.3426382107158, "realized": null, "mvrv": null, "mayer": 0.833, "dd": -0.463, "prob": 0.0524, "oos": false, "label": null, "fng": 11.3, "sig": 0}, {"d": "2026-02-16", "price": 30.9818947124749, "realized": null, "mvrv": null, "mayer": 0.833, "dd": -0.469, "prob": 0.054, "oos": false, "label": null, "fng": 9.0, "sig": 0}, {"d": "2026-02-23", "price": 26.3037668591597, "realized": null, "mvrv": null, "mayer": 0.713, "dd": -0.549, "prob": 0.1012, "oos": false, "label": null, "fng": 8.0, "sig": 0}, {"d": "2026-03-02", "price": 32.9174124992822, "realized": null, "mvrv": null, "mayer": 0.905, "dd": -0.436, "prob": 0.04, "oos": false, "label": null, "fng": 11.1, "sig": 0}, {"d": "2026-03-09", "price": 34.7945931850555, "realized": null, "mvrv": null, "mayer": 0.969, "dd": -0.404, "prob": 0.0305, "oos": false, "label": null, "fng": 13.7, "sig": 0}, {"d": "2026-03-16", "price": 40.8695838884484, "realized": null, "mvrv": null, "mayer": 1.148, "dd": -0.3, "prob": 0.0136, "oos": false, "label": null, "fng": 16.4, "sig": 0}, {"d": "2026-03-23", "price": 37.2564483242705, "realized": null, "mvrv": null, "mayer": 1.051, "dd": -0.362, "prob": 0.0215, "oos": false, "label": null, "fng": 16.9, "sig": 0}, {"d": "2026-03-30", "price": 36.7633680151208, "realized": null, "mvrv": null, "mayer": 1.05, "dd": -0.37, "prob": 0.0225, "oos": false, "label": null, "fng": 11.0, "sig": 0}, {"d": "2026-04-06", "price": 36.3063693455154, "realized": null, "mvrv": null, "mayer": 1.057, "dd": -0.378, "prob": 0.0232, "oos": false, "label": null, "fng": 10.9, "sig": 0}, {"d": "2026-04-13", "price": 44.3424622656509, "realized": null, "mvrv": null, "mayer": 1.301, "dd": -0.24, "prob": 0.0081, "oos": false, "label": null, "fng": 14.4, "sig": 0}, {"d": "2026-04-20", "price": 40.6304871175604, "realized": null, "mvrv": null, "mayer": 1.197, "dd": -0.304, "prob": 0.0129, "oos": false, "label": null, "fng": 24.3, "sig": 0}, {"d": "2026-04-27", "price": 41.5774900216086, "realized": null, "mvrv": null, "mayer": 1.232, "dd": -0.287, "prob": 0.0113, "oos": false, "label": null, "fng": 37.3, "sig": 0}, {"d": "2026-05-04", "price": 41.8618502220888, "realized": null, "mvrv": null, "mayer": 1.238, "dd": -0.283, "prob": 0.011, "oos": false, "label": null, "fng": 34.3, "sig": 0}, {"d": "2026-05-11", "price": 41.9713122845857, "realized": null, "mvrv": null, "mayer": 1.234, "dd": -0.281, "prob": 0.0109, "oos": false, "label": null, "fng": 44.9, "sig": 0}, {"d": "2026-05-18", "price": 47.4997822754605, "realized": null, "mvrv": null, "mayer": 1.4, "dd": -0.186, "prob": 0.0054, "oos": false, "label": null, "fng": 36.3, "sig": 0}, {"d": "2026-05-25", "price": 61.342244196345, "realized": null, "mvrv": null, "mayer": 1.778, "dd": -0.027, "prob": 0.0016, "oos": false, "label": null, "fng": 27.4, "sig": 0}, {"d": "2026-06-01", "price": 73.7624637223716, "realized": null, "mvrv": null, "mayer": 2.085, "dd": 0.0, "prob": 0.0011, "oos": false, "label": null, "fng": 26.3, "sig": 0}, {"d": "2026-06-08", "price": 63.4271970995197, "realized": null, "mvrv": null, "mayer": 1.749, "dd": -0.15, "prob": 0.0031, "oos": false, "label": null, "fng": 12.9, "sig": 0}, {"d": "2026-06-15", "price": 66.5867984131364, "realized": null, "mvrv": null, "mayer": 1.79, "dd": -0.107, "prob": 0.0024, "oos": false, "label": null, "fng": 13.4, "sig": 0}, {"d": "2026-06-22", "price": 66.1258226912784, "realized": null, "mvrv": null, "mayer": 1.72, "dd": -0.114, "prob": 0.0026, "oos": false, "label": null, "fng": 20.0, "sig": 0}, {"d": "2026-06-29", "price": 66.8219492005057, "realized": null, "mvrv": null, "mayer": 1.686, "dd": -0.104, "prob": 0.0026, "oos": false, "label": null, "fng": 15.7, "sig": 0}, {"d": "2026-07-06", "price": 70.688621343215, "realized": null, "mvrv": null, "mayer": 1.721, "dd": -0.052, "prob": 0.0019, "oos": false, "label": null, "fng": 19.3, "sig": 0}, {"d": "2026-07-13", "price": 63.3954134319553, "realized": null, "mvrv": null, "mayer": 1.489, "dd": -0.15, "prob": 0.004, "oos": false, "label": null, "fng": 24.6, "sig": 0}, {"d": "2026-07-20", "price": 62.5589699678247, "realized": null, "mvrv": null, "mayer": 1.426, "dd": -0.161, "prob": 0.0046, "oos": false, "label": null, "fng": 25.9, "sig": 0}, {"d": "2026-07-27", "price": 56.1082470683259, "realized": null, "mvrv": null, "mayer": 1.247, "dd": -0.248, "prob": 0.009, "oos": false, "label": null, "fng": 28.6, "sig": 0}, {"d": "2026-08-03", "price": 53.941917084146, "realized": null, "mvrv": null, "mayer": 1.173, "dd": -0.277, "prob": 0.0116, "oos": false, "label": null, "fng": 27.6, "sig": 0}, {"d": "2026-08-10", "price": 55.0656242616327, "realized": null, "mvrv": null, "mayer": 1.169, "dd": -0.262, "prob": 0.0108, "oos": false, "label": null, "fng": 28.1, "sig": 0}, {"d": "2026-08-17", "price": 59.3896836128489, "realized": null, "mvrv": null, "mayer": 1.233, "dd": -0.204, "prob": 0.0073, "oos": false, "label": null, "fng": 30.4, "sig": 0}, {"d": "2026-08-24", "price": 78.3858504330601, "realized": null, "mvrv": null, "mayer": 1.58, "dd": -0.048, "prob": 0.0022, "oos": false, "label": null, "fng": 61.6, "sig": 0}, {"d": "2026-08-31", "price": 84.1545393069196, "realized": null, "mvrv": null, "mayer": 1.637, "dd": -0.009, "prob": 0.0016, "oos": false, "label": null, "fng": 68.9, "sig": 0}, {"d": "2026-09-07", "price": 85.172275473278, "realized": null, "mvrv": null, "mayer": 1.597, "dd": -0.031, "prob": 0.006, "oos": false, "label": null, "fng": 69.7, "sig": 1}, {"d": "2026-09-14", "price": 80.2266352248551, "realized": null, "mvrv": null, "mayer": 1.455, "dd": -0.087, "prob": 0.0094, "oos": false, "label": null, "fng": 63.0, "sig": 1}, {"d": "2026-09-21", "price": 93.8856973690244, "realized": null, "mvrv": null, "mayer": 1.644, "dd": 0.0, "prob": 0.0049, "oos": false, "label": null, "fng": 62.6, "sig": 1}, {"d": "2026-09-28", "price": 87.4447571544283, "realized": null, "mvrv": null, "mayer": 1.478, "dd": -0.1, "prob": 0.0098, "oos": false, "label": null, "fng": 72.7, "sig": 1}, {"d": "2026-10-01", "price": 87.5725067723774, "realized": null, "mvrv": null, "mayer": 1.461, "dd": -0.098, "prob": 0.0099, "oos": false, "label": null, "fng": 72.4, "sig": 1}], "predictions": [{"date": "2026-10-01", "price": 87.5725067723774, "prob": 0.0099, "signals": 1, "model_version": "alt-v1.0", "low_since": null, "change_now": 0.0}], "live_score": {"n": 0, "brier": null}, "changelog": [{"date": "2026-10-02", "version": "v1.0", "change": "初版。指標5種（MVRV・メイヤー倍率・最高値からの下落率・ハッシュリボン・サイクル時期）＋恐怖強欲指数。1年／3か月の底値圏確率をロジスティック回帰で算出し、半減期サイクルごとの抜き取り検証で精度を確認。"}, {"date": "2026-10-02", "version": "alt-v1.0", "change": "ETH・XRP・SOL・HYPEのページを追加。アルトは価格系3指標（メイヤー倍率・下落率・BTC基準のサイクル時期）の共通モデルをBTC・ETH・XRP・SOLの過去データで学習。銘柄を外した検証でAUCはETH 0.90、XRP 0.78、SOL 0.97。MVRVを加えたモデルはXRPで0.64に下がったため不採用。HYPEは答えが出ている期間がなく参考値。"}]};
+
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const usd = v => v == null ? "—" : "$" + (v >= 100 ? Math.round(v).toLocaleString("en-US") : v >= 1 ? v.toFixed(2) : v.toFixed(4));
+const pct = (v, d = 0) => v == null ? "—" : (v * 100).toFixed(d) + "%";
+const C = D.current, T = D.config.thresholds, H = D.history;
+
+const A = D.asset || { code: "btc", symbol: "BTC", name: "ビットコイン" };
+const NS = D.n_signals || 5;
+const isBtc = A.code === "btc", hasReal = H.some(r => r.realized);
+document.querySelectorAll(".assets a").forEach(a => { if (a.dataset.a === A.code) a.setAttribute("aria-current", "page"); });
+document.querySelectorAll("[data-for]").forEach(el => {
+  const f = el.dataset.for;
+  el.hidden = (f === "btc" && !isBtc) || (f === "alt" && isBtc) || (f === "mvrv" && !hasReal);
+});
+if (!isBtc) {
+  $("sym").textContent = A.symbol;
+  $("ttl").textContent = "底値モニター";
+  $("assetNote").textContent = `${A.name}（${A.symbol}）：${A.note}`;
+  $("assetNote").hidden = false;
+  $("probNote").textContent = `価格系の${NS}指標を使う共通モデルです。${D.pool.join("・")}の過去データで学習しています。`;
+  $("indLead").textContent = `${NS}つの指標が「点灯」すると底値圏に近いサインです。確率はメイヤー倍率・下落率・サイクル時期から計算します。恐怖・強欲指数とMVRVは参考表示です。`;
+  $("scoreLead").textContent = `${D.pool.join("・")}の各日について、点灯数ごとに「実際に底値圏だった日の割合」を集計しました。濃い棒が今の点灯数です。`;
+  $("perfLead").textContent = D.model.held_out
+    ? `${A.symbol}を学習から外したモデルで、${A.symbol}の過去を当てられるかを試しました。`
+    : `${A.symbol}はまだ答えが出ている期間がないため、独自の検証はできていません。他の銘柄で作ったモデルを当てはめています。`;
+  $("probLead").textContent = `答えが出ている期間は、${A.symbol}を学習に使わないモデルで計算した値です。そのため「当時予測していたら何%と出たか」に近い数字になっています。直近1年はまだ答えが出ていません。`;
+  $("histLead").textContent = "毎週月曜の指標値と確率、実際に底値圏だったかの答えです。年を選ぶと切り替わります。";
+  if (!hasReal) {
+    $("priceTitle").textContent = "価格（対数目盛）";
+    $("realLegend").hidden = true;
+    $("priceLead").textContent = "緑の帯は、後から振り返って実際に底値圏だった期間です（前後1年の最安値から1.5倍以内）。";
+  }
+}
+$("dataDate").textContent = D.data_date;
+$("generated").textContent = D.generated;
+$("ver").textContent = D.model_version;
+
+// 判定
+const p = D.prob;
+const level = p >= 0.5 ? ["底値圏の可能性が高い", "--good", "複数の指標が過去の大底と同じ水準です。"]
+  : p >= 0.2 ? ["底値圏に接近中", "--warn", "一部の指標が底値圏に入りつつあります。点灯数の増加に注意してください。"]
+  : ["底値圏ではない", "--crit", "過去の大底の水準にはまだ距離があります。"];
+$("state").innerHTML = `<i class="dot" style="background:var(${level[1]})"></i>${level[0]}`;
+const gap = C.realized ? C.price / C.realized - 1 : null;
+$("stateNote").textContent = level[2] + (gap == null ? "" : ` 価格は平均取得単価（実現価格）より${pct(Math.abs(gap), 0)}${gap >= 0 ? "上" : "下"}です。`);
+$("prob").innerHTML = `${(p * 100).toFixed(0)}<small>%</small>`;
+$("probBar").style.width = (p * 100).toFixed(1) + "%";
+const sc = D.scorecard.find(s => s.count === D.signal_count);
+$("sig").innerHTML = `${D.signal_count}<small>/ ${NS}</small>`;
+$("sigNote").textContent = sc ? `過去に${D.signal_count}個点灯していた日のうち、実際に底値圏だったのは ${pct(sc.hit, 0)}（${sc.days.toLocaleString()}日中）。` : "";
+
+// 指標表
+const pill = st => st === "on" ? '<span class="pill on"><i class="dot" style="background:var(--good)"></i>点灯</span>'
+  : st === "off" ? '<span class="pill off"><i class="dot" style="background:var(--muted)"></i>未点灯</span>'
+  : st === "same" ? '<span class="pill na">MVRVと同じ</span>' : st === "ref" ? '<span class="pill na">参考</span>' : '<span class="pill na">データなし</span>';
+$("indTable").innerHTML = D.indicators.map(r => `<tr><td><span class="ind-name">${r.name}</span><span class="ind-desc">${r.desc}</span></td>
+  <td class="r num">${r.value}</td><td class="r num">${r.threshold}</td><td>${pill(r.state)}</td></tr>`).join("");
+
+// スコアカード表・成績表
+$("scoreTable").innerHTML = D.scorecard.map(s => `<tr${s.count === D.signal_count ? ' style="font-weight:700"' : ""}><td class="num">${s.count}個${s.count === D.signal_count ? "（現在）" : ""}</td><td class="r num">${s.days.toLocaleString()}</td><td class="r num">${pct(s.hit, 1)}</td></tr>`).join("");
+const M = D.model;
+$("perfTable").innerHTML = M.auc == null ? `<tr><td class="empty">答えが出ている期間がまだないため、${A.symbol}自身での成績は出せません。他の銘柄で作ったモデルを当てはめた参考値です。</td></tr>` : [
+  ["判別力（AUC）", M.auc.toFixed(3), "0.5は当てずっぽう、1.0は完全"],
+  ["誤差（Brierスコア）", M.brier_model.toFixed(3), `何も見ずに平均値で答えた場合は ${M.brier_base.toFixed(3)}（小さいほど良い）`],
+  ["過去の底値圏の割合", pct(M.base_rate, 1), `学習した日数 ${M.n_train.toLocaleString()}日`],
+].map(r => `<tr><td>${r[0]}</td><td class="r num" style="font-weight:600">${r[1]}</td><td class="sub">${r[2]}</td></tr>`).join("");
+$("calTable").innerHTML = M.auc == null ? '<tr><td colspan="3" class="empty">答え合わせできる期間がまだありません。</td></tr>' : M.calibration.map(b => `<tr><td class="num">${b.range}</td><td class="r num">${b.n.toLocaleString()}</td><td class="r num">${pct(b.hit, 0)}</td></tr>`).join("");
+
+// 予測記録
+const preds = [...D.predictions].reverse();
+$("predTable").innerHTML = preds.length ? preds.map(x => `<tr><td class="num">${x.date}</td><td class="r num">${usd(x.price)}</td><td class="r num">${pct(x.prob, 0)}</td><td class="r num">${x.signals}/${NS}</td>
+  <td class="r num">${usd(x.low_since)}</td><td class="r num">${x.change_now == null ? "—" : (x.change_now >= 0 ? "+" : "") + pct(x.change_now, 1)}</td>
+  <td>${x.result == null ? '<span class="pill na">判定待ち（' + x.date.slice(0,4) + '年+1年）</span>' : x.result ? '<span class="pill on">底値圏だった</span>' : '<span class="pill off">底値圏ではなかった</span>'}</td></tr>`).join("")
+  : '<tr><td colspan="7" class="empty">まだ記録がありません。</td></tr>';
+$("liveScore").textContent = D.live_score.n ? `答え合わせ済み ${D.live_score.n}件、Brierスコア ${D.live_score.brier.toFixed(3)}` : "答え合わせ済みの記録はまだありません。最初の判定は記録から1年後です。";
+$("logTable").innerHTML = [...D.changelog].reverse().map(c => `<tr><td class="num" style="white-space:nowrap">${c.date}</td><td class="num">${c.version}</td><td>${c.change}</td></tr>`).join("");
+
+
+// 過去の週次記録（年別）
+const years = [...new Set(H.map(r => r.d.slice(0, 4)))].reverse();
+let year = years[0];
+function drawYear(y) {
+  year = y;
+  document.querySelectorAll("#yearBtns button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.y === y)));
+  $("histTable").innerHTML = H.filter(r => r.d.startsWith(y)).reverse().map(r => `<tr><td class="num">${r.d}</td><td class="r num">${usd(r.price)}</td><td class="r num">${usd(r.realized)}</td>
+    <td class="r num">${r.mvrv == null ? "—" : r.mvrv.toFixed(2)}</td><td class="r num">${r.mayer.toFixed(2)}</td><td class="r num">${pct(r.dd, 0)}</td><td class="r num">${r.fng == null ? "—" : r.fng.toFixed(0)}</td>
+    <td class="r num">${r.sig}/${NS}</td><td class="r num" style="font-weight:600">${pct(r.prob, 0)}</td>
+    <td>${r.label == null ? '<span class="pill na">判定待ち</span>' : r.label ? '<span class="pill on"><i class="dot" style="background:var(--good)"></i>底値圏</span>' : '<span class="pill off">—</span>'}</td></tr>`).join("");
+}
+$("yearBtns").innerHTML = years.map(y => `<button type="button" data-y="${y}">${y}</button>`).join("");
+document.querySelectorAll("#yearBtns button").forEach(b => b.addEventListener("click", () => drawYear(b.dataset.y)));
+drawYear(year);
+
+// ---------- チャート ----------
+let charts = [];
+function baseOpts(extra) {
+  const ink = css("--muted"), grid = css("--line");
+  return Object.assign({
+    responsive: true, maintainAspectRatio: false, animation: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: { legend: { display: false }, tooltip: { backgroundColor: css("--panel"), titleColor: css("--fg"), bodyColor: css("--fg-2"), borderColor: grid, borderWidth: 1, padding: 10 } },
+    scales: {
+      x: { ticks: { color: ink, maxRotation: 0, autoSkipPadding: 24, callback(v) { return this.getLabelForValue(v).slice(0, 7); } }, grid: { display: false }, border: { color: grid } },
+    },
+  }, extra);
+}
+// 実際の底値圏を帯で描くプラグイン
+const zonePlugin = {
+  id: "zones",
+  beforeDatasetsDraw(chart, _, opts) {
+    const { ctx, chartArea: a, scales: { x } } = chart;
+    const lab = chart.$labels || [];
+    ctx.save(); ctx.fillStyle = css("--zone");
+    const w = Math.max(1, (a.right - a.left) / Math.max(1, lab.length));
+    lab.forEach((l, i) => { if (l === 1) ctx.fillRect(x.getPixelForValue(i) - w / 2, a.top, w + 0.5, a.bottom - a.top); });
+    ctx.restore();
+  }
+};
+
+function draw(range) {
+  charts.forEach(c => c.destroy()); charts = [];
+  let h = H;
+  if (range !== "all") {
+    const cut = new Date(D.data_date); cut.setFullYear(cut.getFullYear() - Number(range));
+    const c = cut.toISOString().slice(0, 10);
+    h = H.filter(r => r.d >= c);
+  }
+  const labels = h.map(r => r.d);
+  const pc = new Chart($("priceChart"), {
+    type: "line",
+    data: { labels, datasets: [
+      { label: "価格", data: h.map(r => r.price), borderColor: css("--series-1"), borderWidth: 2, pointRadius: 0, tension: 0 },
+      { label: "実現価格", data: h.map(r => r.realized), borderColor: css("--series-2"), borderWidth: 2, pointRadius: 0, tension: 0 },
+    ] },
+    options: baseOpts({
+      scales: Object.assign(baseOpts().scales, { y: { type: "logarithmic", ticks: { color: css("--muted"), callback: v => { const s = String(v); return /^[125]0*$/.test(s) ? usd(v) : ""; } }, grid: { color: css("--line") }, border: { display: false } } }),
+      plugins: Object.assign(baseOpts().plugins, { tooltip: Object.assign(baseOpts().plugins.tooltip, { callbacks: { label: c => `${c.dataset.label}: ${usd(c.parsed.y)}` } }) }),
+    }),
+    plugins: [zonePlugin],
+  });
+  pc.$labels = h.map(r => r.label); pc.update();
+  const pr = new Chart($("probChart"), {
+    type: "line",
+    data: { labels, datasets: [{ label: "底値圏の確率", data: h.map(r => r.prob * 100), borderColor: css("--accent"), backgroundColor: css("--accent") + "33", fill: true, borderWidth: 2, pointRadius: 0, tension: 0 }] },
+    options: baseOpts({
+      scales: Object.assign(baseOpts().scales, { y: { min: 0, max: 100, ticks: { color: css("--muted"), stepSize: 25, callback: v => v + "%" }, grid: { color: css("--line") }, border: { display: false } } }),
+      plugins: Object.assign(baseOpts().plugins, { tooltip: Object.assign(baseOpts().plugins.tooltip, { callbacks: { label: c => `確率: ${c.parsed.y.toFixed(0)}%${h[c.dataIndex].oos ? "（検証値）" : "（答え待ち）"}`, afterLabel: c => `点灯数: ${h[c.dataIndex].sig}/5` } }) }),
+    }),
+    plugins: [zonePlugin],
+  });
+  pr.$labels = h.map(r => r.label); pr.update();
+  charts.push(pc, pr);
+}
+
+let scoreChart;
+function drawScore() {
+  if (scoreChart) scoreChart.destroy();
+  scoreChart = new Chart($("scoreChart"), {
+    type: "bar",
+    data: { labels: D.scorecard.map(s => s.count + "個"), datasets: [{ data: D.scorecard.map(s => s.hit * 100),
+      backgroundColor: D.scorecard.map(s => s.count === D.signal_count ? css("--accent") : css("--series-1") + "66"),
+      borderRadius: { topLeft: 4, topRight: 4 }, borderSkipped: "bottom", maxBarThickness: 36 }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `的中率 ${c.parsed.y.toFixed(1)}%（${D.scorecard[c.dataIndex].days}日）` } } },
+      scales: { x: { ticks: { color: css("--muted") }, grid: { display: false } },
+                y: { min: 0, max: 100, ticks: { color: css("--muted"), stepSize: 25, callback: v => v + "%" }, grid: { color: css("--line") }, border: { display: false } } } },
+  });
+}
+
+let current = "8";
+try { current = localStorage.getItem("btcRange") || "8"; } catch (e) {}
+function setRange(r) {
+  current = r;
+  document.querySelectorAll(".ranges button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.range === r)));
+  try { localStorage.setItem("btcRange", r); } catch (e) {}
+  draw(r);
+}
+document.querySelectorAll(".ranges button").forEach(b => b.addEventListener("click", () => setRange(b.dataset.range)));
+function all() { setRange(current); drawScore(); }
+if (window.Chart) all();
+// テーマ変更時に色を取り直す
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => window.Chart && all());
+new MutationObserver(() => window.Chart && all()).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+</script>
+</body>
+</html>

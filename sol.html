@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SOL底値モニター</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: 計器盤。上に判定と確率、次に指標の信号表、その下に長期チャート、検証と記録は下段。1カラム中心、広い画面では2列に分かれる */
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --fg: #14171c;
+  --fg-2: #4a515c;
+  --muted: #7a828e;
+  --line: #e1e4e9;
+  --accent: #c27a12;           /* ビットコインの琥珀 */
+  --series-1: #2a78d6;         /* 価格 */
+  --series-2: #eb6834;         /* 実現価格 */
+  --zone: rgba(27, 175, 122, .16);
+  --good: #0ca30c; --warn: #fab219; --crit: #d03b3b;
+  --good-ink: #0a7a0a; --warn-ink: #8a5d00; --crit-ink: #b02f2f;
+  --chip-bg: #eef0f3;
+  --f-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+  --f-num: "IBM Plex Mono", ui-monospace, "Consolas", monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121418; --panel: #1b1e24; --fg: #f1f2f4; --fg-2: #c0c5cd; --muted: #8b929d; --line: #2c3139;
+  --accent: #e9a53b; --series-1: #3987e5; --series-2: #d95926; --zone: rgba(25, 158, 112, .22);
+  --good-ink: #4fd04f; --warn-ink: #fab219; --crit-ink: #ff7b7b; --chip-bg: #262a31; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #121418; --panel: #1b1e24; --fg: #f1f2f4; --fg-2: #c0c5cd; --muted: #8b929d; --line: #2c3139;
+  --accent: #e9a53b; --series-1: #3987e5; --series-2: #d95926; --zone: rgba(25, 158, 112, .22);
+  --good-ink: #4fd04f; --warn-ink: #fab219; --crit-ink: #ff7b7b; --chip-bg: #262a31; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 15px; line-height: 1.7; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 64px; display: grid; gap: 20px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; }
+h1 { font-size: 1.6rem; margin: 0; letter-spacing: .02em; text-wrap: balance; }
+h1 .sym { color: var(--accent); }
+.assets { display: flex; flex-wrap: wrap; gap: 6px; }
+.assets a { font-family: var(--f-num); font-size: .85rem; font-weight: 600; padding: 4px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--fg-2); text-decoration: none; }
+.assets a[aria-current="page"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.assets a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.asset-note { margin: 0; color: var(--fg-2); font-size: .86rem; max-width: 80ch; }
+h2 { font-size: 1.08rem; margin: 0 0 4px; text-wrap: balance; }
+.sub { color: var(--muted); font-size: .85rem; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; min-width: 0; }
+.lead { color: var(--fg-2); font-size: .9rem; margin: 0 0 14px; max-width: 68ch; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+@media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } }
+
+/* 判定 */
+.verdict { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 0; padding: 0; overflow: hidden; }
+@media (max-width: 760px) { .verdict { grid-template-columns: 1fr; } }
+.verdict > div { padding: 20px; min-width: 0; }
+.verdict > div + div { border-left: 1px solid var(--line); }
+@media (max-width: 760px) { .verdict > div + div { border-left: 0; border-top: 1px solid var(--line); } }
+.label { font-size: .78rem; color: var(--muted); letter-spacing: .06em; }
+.big { font-family: var(--f-num); font-size: 2.6rem; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.big small { font-size: 1rem; color: var(--muted); font-weight: 400; margin-left: 4px; }
+.state { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 1.25rem; margin: 6px 0 4px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.meter { position: relative; height: 8px; border-radius: 4px; background: var(--chip-bg); margin-top: 10px; overflow: hidden; }
+.meter i { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--accent); }
+.note { font-size: .82rem; color: var(--fg-2); margin: 8px 0 0; }
+
+/* 指標表 */
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: .76rem; color: var(--muted); font-weight: 500; letter-spacing: .05em; white-space: nowrap; }
+td.r, th.r { text-align: right; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 10px; border-radius: 999px; font-size: .78rem; font-weight: 700; white-space: nowrap; background: var(--chip-bg); }
+.pill.on { color: var(--good-ink); }
+.pill.off { color: var(--muted); }
+.pill.na { color: var(--muted); font-weight: 400; }
+.pill .dot { width: 8px; height: 8px; }
+.ind-name { font-weight: 700; }
+.ind-desc { color: var(--fg-2); font-size: .8rem; display: block; max-width: 46ch; }
+
+/* チャート */
+.chart-box { position: relative; height: 340px; }
+.chart-box.short { height: 220px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .8rem; color: var(--fg-2); margin: 0 0 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.sw.box { height: 12px; width: 12px; border-radius: 2px; }
+.ranges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.ranges button { font: inherit; font-size: .8rem; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--fg-2); cursor: pointer; }
+.ranges button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.ranges button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+details { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 12px; }
+summary { cursor: pointer; font-weight: 700; font-size: .9rem; }
+.glossary { display: grid; gap: 14px; margin-top: 12px; }
+.glossary div { min-width: 0; }
+.glossary b { display: block; }
+.glossary p { margin: 2px 0 0; color: var(--fg-2); font-size: .86rem; max-width: 72ch; }
+.empty { color: var(--muted); font-size: .88rem; padding: 12px 0; }
+footer { color: var(--muted); font-size: .78rem; max-width: 80ch; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1><span class="sym" id="sym">₿</span> <span id="ttl">BTC底値モニター</span></h1>
+    <div class="sub">データ日 <span class="num" id="dataDate"></span>・更新 <span class="num" id="generated"></span>・モデル <span class="num" id="ver"></span>・毎週月曜更新</div>
+  </header>
+  <nav class="assets" aria-label="銘柄の切り替え">
+    <a href="index.html" data-a="btc">BTC</a><a href="eth.html" data-a="eth">ETH</a><a href="xrp.html" data-a="xrp">XRP</a><a href="sol.html" data-a="sol">SOL</a><a href="hype.html" data-a="hype">HYPE</a>
+  </nav>
+  <p class="asset-note" id="assetNote" hidden></p>
+
+  <section class="panel verdict" aria-label="現在の判定">
+    <div>
+      <div class="label">現在の判定</div>
+      <div class="state" id="state"></div>
+      <p class="note" id="stateNote"></p>
+    </div>
+    <div>
+      <div class="label">底値圏の確率（モデル）</div>
+      <div class="big" id="prob"></div>
+      <div class="meter" aria-hidden="true"><i id="probBar"></i></div>
+      <p class="note" id="probNote">5指標を組み合わせたロジスティック回帰。過去の別サイクルで検証済みの式です。</p>
+    </div>
+    <div>
+      <div class="label">シグナル点灯数</div>
+      <div class="big" id="sig"></div>
+      <p class="note" id="sigNote"></p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>指標と現在値</h2>
+    <p class="lead" id="indLead">5つの中核指標が「点灯」すると底値圏に近いサインです。恐怖・強欲指数は2018年以降しかデータがないため、確率の計算には入れず参考表示にしています。</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>指標</th><th class="r">現在値</th><th class="r">底値圏の目安</th><th>状態</th></tr></thead>
+      <tbody id="indTable"></tbody>
+    </table></div>
+    <details>
+      <summary>各指標の読み方</summary>
+      <div class="glossary">
+        <div data-for="mvrv"><b>MVRV（時価総額 ÷ 実現時価総額）</b><p>全保有者の平均含み益の倍率です。1.0を下回ると、平均的な保有者が含み損の状態です。2015年、2018年、2022年の大底はすべて1.0未満でした。</p></div>
+        <div data-for="mvrv"><b>実現価格</b><p>すべてのコインが最後に動いたときの価格の平均で、市場全体の平均取得単価に当たります。価格がここまで下がると底値圏です。MVRV = 価格 ÷ 実現価格 の関係です。</p></div>
+        <div><b>メイヤー倍率（価格 ÷ 200日移動平均）</b><p>長期平均からどれだけ離れているかを示します。BTCは0.8未満、値動きの大きいアルトコインは0.7未満を売られすぎの目安にしています。過去の大底では0.4〜0.7まで下がりました。</p></div>
+        <div><b>最高値からの下落率</b><p>BTCの過去の弱気相場は最高値から77〜86%、アルトコインは85〜95%下げて底を付けました。目安はBTCが−65%、アルトコインが−80%です。今回は機関投資家の参入で下げ幅が浅くなる可能性があります。</p></div>
+        <div data-for="btc"><b>ハッシュリボン</b><p>採掘能力（ハッシュレート）の30日平均が60日平均を下回った状態です。採算が合わなくなったマイナーが撤退・売却している局面で、底の近くでよく起きます。</p></div>
+        <div data-for="btc"><b>サイクル時期</b><p>最高値から330〜450日後で、かつ30%以上下げている状態です。過去3回の底は最高値から363〜410日後でした。今回の最高値は2025年10月6日です。</p></div>
+        <div data-for="alt"><b>サイクル時期（BTC基準）</b><p>ビットコインの最高値から330〜450日後の期間です。アルトコインの大底は、ほぼビットコインの大底と同じ時期に来てきました（2018年12月、2022年6〜11月）。そのため、アルトコインもビットコインの暦で判定しています。BTCの今回の最高値は2025年10月6日です。</p></div>
+        <div><b>恐怖・強欲指数（7日平均）</b><p>価格変動、出来高、SNS、検索などから作る市場心理の指数（0〜100）です。20以下は極度の恐怖で、投げ売りが出やすい状態です。</p></div>
+      </div>
+    </details>
+  </section>
+
+  <section class="panel">
+    <h2 id="priceTitle">価格と実現価格（対数目盛）</h2>
+    <p class="lead" id="priceLead">緑の帯は、後から振り返って実際に底値圏だった期間です（前後1年の最安値から1.5倍以内）。価格が実現価格に近づくほど、底に近い状態です。</p>
+    <div class="ranges" role="group" aria-label="表示期間">
+      <button type="button" data-range="all" aria-pressed="false">全期間</button>
+      <button type="button" data-range="8" aria-pressed="true">8年</button>
+      <button type="button" data-range="4" aria-pressed="false">4年</button>
+      <button type="button" data-range="1" aria-pressed="false">1年</button>
+    </div>
+    <div class="legend"><span><i class="sw" style="background:var(--series-1)"></i>価格（米ドル）</span><span id="realLegend"><i class="sw" style="background:var(--series-2)"></i>実現価格</span><span><i class="sw box" style="background:var(--zone)"></i>実際の底値圏</span></div>
+    <div class="chart-box"><canvas id="priceChart" aria-label="価格と実現価格の推移"></canvas></div>
+  </section>
+
+  <section class="panel">
+    <h2>底値圏の確率の推移</h2>
+    <p class="lead" id="probLead">答えが出ている期間は、そのサイクルを学習に使わないモデルで計算した値です。そのため「当時予測していたら何%と出たか」に近い数字になっています。直近1年はまだ答えが出ていません。</p>
+    <div class="chart-box short"><canvas id="probChart" aria-label="底値圏確率の推移"></canvas></div>
+  </section>
+
+  <div class="grid2">
+    <section class="panel">
+      <h2>点灯数ごとの過去の的中率</h2>
+      <p class="lead" id="scoreLead">2011年以降の各日について、点灯数ごとに「実際に底値圏だった日の割合」を集計しました。濃い棒が今の点灯数です。</p>
+      <div class="chart-box short"><canvas id="scoreChart" aria-label="点灯数別の的中率"></canvas></div>
+      <div class="tbl-wrap"><table><thead><tr><th>点灯数</th><th class="r">日数</th><th class="r">的中率</th></tr></thead><tbody id="scoreTable"></tbody></table></div>
+    </section>
+    <section class="panel">
+      <h2>モデルの成績</h2>
+      <p class="lead" id="perfLead">半減期サイクルごとに1つずつ抜いて学習し、抜いた時代を当てられるかを試しました。</p>
+      <div class="tbl-wrap"><table><tbody id="perfTable"></tbody></table></div>
+      <h2 style="margin-top:16px">確率帯ごとの的中率</h2>
+      <p class="lead">「確率○%」と出た日が、実際に底値圏だった割合です。確率と的中率が近いほど、数字を信用できます。</p>
+      <div class="tbl-wrap"><table><thead><tr><th>確率帯</th><th class="r">日数</th><th class="r">実際の的中率</th></tr></thead><tbody id="calTable"></tbody></table></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>毎週の予測記録と答え合わせ</h2>
+    <p class="lead">毎週の予測を記録しています。365日たつと前後1年の最安値が確定し、自動で答え合わせをします。それまでは、記録後の最安値と今の騰落率を途中経過として表示します。</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>記録日</th><th class="r">価格</th><th class="r">確率</th><th class="r">点灯</th><th class="r">記録後の最安値</th><th class="r">現在の騰落率</th><th>答え合わせ</th></tr></thead>
+      <tbody id="predTable"></tbody>
+    </table></div>
+    <p class="note" id="liveScore"></p>
+  </section>
+
+  <section class="panel">
+    <h2>過去の週次記録</h2>
+    <p class="lead" id="histLead">2012年以降の毎週月曜の指標値と確率、実際に底値圏だったかの答えです。年を選ぶと切り替わります。確率は、その時代を学習に使わないモデルで計算した検証値です。</p>
+    <div class="ranges" role="group" aria-label="年の選択" id="yearBtns"></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>日付</th><th class="r">価格</th><th class="r">実現価格</th><th class="r">MVRV</th><th class="r">メイヤー倍率</th><th class="r">下落率</th><th class="r">恐怖強欲</th><th class="r">点灯</th><th class="r">確率</th><th>実際</th></tr></thead>
+      <tbody id="histTable"></tbody>
+    </table></div>
+  </section>
+
+  <section class="panel">
+    <h2>改善の履歴</h2>
+    <div class="tbl-wrap"><table><thead><tr><th>日付</th><th>版</th><th>変更内容</th></tr></thead><tbody id="logTable"></tbody></table></div>
+  </section>
+
+  <footer>
+    データ：Coin Metrics Community API（価格・MVRV・ハッシュレート）、alternative.me（恐怖・強欲指数）。確率は過去の傾向から計算した目安で、将来の値動きを保証するものではありません。投資判断はご自身で行ってください。
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const D = {"asset": {"code": "sol", "name": "ソラナ", "symbol": "SOL", "note": "2020年からのデータ。無料で取れるのは価格だけのため、MVRVは使っていません。"}, "generated": "2026-10-02 12:57", "data_date": "2026-10-01", "model_version": "alt-v1.0", "config": {"model_version": "v1.0", "window_days": 365, "bottom_zone_mult": 1.5, "thresholds": {"mvrv_max": 1.0, "mayer_max": 0.8, "drawdown_max": -0.65, "fng_max": 20, "ath_days_min": 330, "ath_days_max": 450}}, "n_signals": 3, "signal_count": 1, "current": {"price": 118.336492465472, "realized": null, "drawdown": -0.5468657559254346}, "prob": 0.10354351678846796, "indicators": [{"name": "メイヤー倍率", "desc": "価格 ÷ 200日移動平均", "value": "1.38", "threshold": "≤ 0.7", "state": "off"}, {"name": "最高値からの下落率", "desc": "最高値 $261（2025-01-18）", "value": "-54.7%", "threshold": "≤ -80%", "state": "off"}, {"name": "サイクル時期（BTC基準）", "desc": "ビットコインの最高値からの日数", "value": "360日", "threshold": "330〜450日", "state": "on"}, {"name": "恐怖・強欲指数", "desc": "7日平均（市場全体・参考・確率には不使用）", "value": "72", "threshold": "≤ 20", "state": "off"}], "pool": ["BTC", "ETH", "XRP", "SOL"], "model": {"weights": {"切片": -5.628392135946975, "log(メイヤー倍率)": -1.6709731942743224, "最高値からの下落率": -5.243187445639553, "サイクル時期（BTC基準）": 1.1447779634669866}, "auc": 0.9710018214936248, "brier_model": 0.09076336027365357, "brier_base": 0.03589581303315978, "base_rate": 0.03728606356968215, "n_train": 1636, "calibration": [{"range": "0-20%", "n": 1053, "hit": 0.002849002849002849}, {"range": "20-40%", "n": 239, "hit": 0.008368200836820083}, {"range": "40-60%", "n": 129, "hit": 0.0}, {"range": "60-80%", "n": 130, "hit": 0.0}, {"range": "80-100%", "n": 85, "hit": 0.6588235294117647}], "held_out": true}, "scorecard": [{"count": 0, "days": 9469, "hit": 0.06114690041187031}, {"count": 1, "days": 2973, "hit": 0.2976791120080727}, {"count": 2, "days": 1139, "hit": 0.3687445127304653}, {"count": 3, "days": 289, "hit": 0.7647058823529411}], "history": [{"d": "2020-10-26", "price": 1.68741146528153, "realized": null, "mvrv": null, "mayer": 1.011, "dd": -0.648, "prob": 0.0956, "oos": false, "label": null, "fng": 69.7, "sig": 0}, {"d": "2020-11-02", "price": 1.47819623138609, "realized": null, "mvrv": null, "mayer": 0.872, "dd": -0.692, "prob": 0.1455, "oos": false, "label": null, "fng": 69.7, "sig": 0}, {"d": "2020-11-09", "price": 2.02925941860575, "realized": null, "mvrv": null, "mayer": 1.169, "dd": -0.577, "prob": 0.054, "oos": false, "label": null, "fng": 81.0, "sig": 0}, {"d": "2020-11-16", "price": 2.27113500759672, "realized": null, "mvrv": null, "mayer": 1.272, "dd": -0.527, "prob": 0.0367, "oos": false, "label": null, "fng": 88.3, "sig": 0}, {"d": "2020-11-23", "price": 2.27995820516111, "realized": null, "mvrv": null, "mayer": 1.24, "dd": -0.525, "prob": 0.0378, "oos": false, "label": null, "fng": 90.3, "sig": 0}, {"d": "2020-11-30", "price": 1.96983201430253, "realized": null, "mvrv": null, "mayer": 1.043, "dd": -0.59, "prob": 0.0687, "oos": false, "label": null, "fng": 89.3, "sig": 0}, {"d": "2020-12-07", "price": 1.82983514642285, "realized": null, "mvrv": null, "mayer": 0.945, "dd": -0.619, "prob": 0.092, "oos": false, "label": null, "fng": 93.3, "sig": 0}, {"d": "2020-12-14", "price": 1.59171500986788, "realized": null, "mvrv": null, "mayer": 0.808, "dd": -0.668, "prob": 0.1459, "oos": false, "label": null, "fng": 91.4, "sig": 0}, {"d": "2020-12-21", "price": 1.54571981804347, "realized": null, "mvrv": null, "mayer": 0.769, "dd": -0.678, "prob": 0.163, "oos": false, "label": null, "fng": 92.4, "sig": 0}, {"d": "2020-12-28", "price": 1.50961748286942, "realized": null, "mvrv": null, "mayer": 0.742, "dd": -0.685, "prob": 0.1772, "oos": false, "label": null, "fng": 91.0, "sig": 0}, {"d": "2021-01-04", "price": 2.45485855851989, "realized": null, "mvrv": null, "mayer": 1.181, "dd": -0.489, "prob": 0.0341, "oos": false, "label": null, "fng": 93.1, "sig": 0}, {"d": "2021-01-11", "price": 3.09865306624831, "realized": null, "mvrv": null, "mayer": 1.439, "dd": -0.354, "prob": 0.0124, "oos": false, "label": null, "fng": 92.7, "sig": 0}, {"d": "2021-01-18", "price": 3.79056364256949, "realized": null, "mvrv": null, "mayer": 1.686, "dd": -0.21, "prob": 0.0045, "oos": false, "label": null, "fng": 82.1, "sig": 0}, {"d": "2021-01-25", "price": 3.71700547585317, "realized": null, "mvrv": null, "mayer": 1.585, "dd": -0.226, "prob": 0.0054, "oos": false, "label": null, "fng": 70.1, "sig": 0}, {"d": "2021-02-01", "price": 4.55610647444288, "realized": null, "mvrv": null, "mayer": 1.86, "dd": -0.051, "prob": 0.0017, "oos": false, "label": null, "fng": 73.1, "sig": 0}, {"d": "2021-02-08", "price": 7.89618228556302, "realized": null, "mvrv": null, "mayer": 2.991, "dd": 0.0, "prob": 0.0006, "oos": false, "label": null, "fng": 81.1, "sig": 0}, {"d": "2021-02-15", "price": 8.85806550259656, "realized": null, "mvrv": null, "mayer": 3.061, "dd": -0.045, "prob": 0.0007, "oos": false, "label": null, "fng": 93.1, "sig": 0}, {"d": "2021-02-22", "price": 13.9521597385345, "realized": null, "mvrv": null, "mayer": 4.372, "dd": 0.0, "prob": 0.0003, "oos": false, "label": null, "fng": 92.9, "sig": 0}, {"d": "2021-03-01", "price": 14.9992640615476, "realized": null, "mvrv": null, "mayer": 4.173, "dd": -0.14, "prob": 0.0007, "oos": false, "label": null, "fng": 64.7, "sig": 0}, {"d": "2021-03-08", "price": 13.6096315561937, "realized": null, "mvrv": null, "mayer": 3.443, "dd": -0.22, "prob": 0.0014, "oos": false, "label": null, "fng": 78.7, "sig": 0}, {"d": "2021-03-15", "price": 14.2372078732955, "realized": null, "mvrv": null, "mayer": 3.267, "dd": -0.184, "prob": 0.0013, "oos": false, "label": null, "fng": 74.3, "sig": 0}, {"d": "2021-03-22", "price": 14.8907416034934, "realized": null, "mvrv": null, "mayer": 3.162, "dd": -0.146, "prob": 0.0011, "oos": false, "label": null, "fng": 71.9, "sig": 0}, {"d": "2021-03-29", "price": 18.8667916215756, "realized": null, "mvrv": null, "mayer": 3.665, "dd": 0.0, "prob": 0.0004, "oos": false, "label": null, "fng": 65.1, "sig": 0}, {"d": "2021-04-05", "price": 22.9225243313049, "realized": null, "mvrv": null, "mayer": 3.969, "dd": -0.046, "prob": 0.0005, "oos": false, "label": null, "fng": 73.4, "sig": 0}, {"d": "2021-04-12", "price": 28.4616252921483, "realized": null, "mvrv": null, "mayer": 4.299, "dd": 0.0, "prob": 0.0001, "oos": true, "label": 0, "fng": 72.9, "sig": 0}, {"d": "2021-04-19", "price": 31.8376109722956, "realized": null, "mvrv": null, "mayer": 4.246, "dd": -0.022, "prob": 0.0002, "oos": true, "label": 0, "fng": 76.4, "sig": 0}, {"d": "2021-04-26", "price": 44.3657357350662, "realized": null, "mvrv": null, "mayer": 5.051, "dd": -0.073, "prob": 0.0001, "oos": true, "label": 0, "fng": 51.6, "sig": 0}, {"d": "2021-05-03", "price": 46.1394426312255, "realized": null, "mvrv": null, "mayer": 4.488, "dd": -0.068, "prob": 0.0002, "oos": true, "label": 0, "fng": 58.1, "sig": 0}, {"d": "2021-05-10", "price": 43.0202350042736, "realized": null, "mvrv": null, "mayer": 3.663, "dd": -0.131, "prob": 0.0004, "oos": true, "label": 0, "fng": 65.3, "sig": 0}, {"d": "2021-05-17", "price": 47.0349911998855, "realized": null, "mvrv": null, "mayer": 3.552, "dd": -0.05, "prob": 0.0003, "oos": true, "label": 0, "fng": 37.1, "sig": 0}, {"d": "2021-05-24", "price": 30.9851259214426, "realized": null, "mvrv": null, "mayer": 2.136, "dd": -0.447, "prob": 0.0076, "oos": true, "label": 0, "fng": 15.7, "sig": 0}, {"d": "2021-05-31", "price": 32.6581260953102, "realized": null, "mvrv": null, "mayer": 2.104, "dd": -0.418, "prob": 0.0066, "oos": true, "label": 0, "fng": 19.7, "sig": 0}, {"d": "2021-06-07", "price": 38.849165344361, "realized": null, "mvrv": null, "mayer": 2.318, "dd": -0.307, "prob": 0.0028, "oos": true, "label": 0, "fng": 21.4, "sig": 0}, {"d": "2021-06-14", "price": 39.5368687211225, "realized": null, "mvrv": null, "mayer": 2.189, "dd": -0.295, "prob": 0.003, "oos": true, "label": 0, "fng": 21.1, "sig": 0}, {"d": "2021-06-21", "price": 26.8355316104749, "realized": null, "mvrv": null, "mayer": 1.394, "dd": -0.521, "prob": 0.0275, "oos": true, "label": 0, "fng": 27.0, "sig": 0}, {"d": "2021-06-28", "price": 32.9533002847276, "realized": null, "mvrv": null, "mayer": 1.628, "dd": -0.412, "prob": 0.0108, "oos": true, "label": 0, "fng": 20.0, "sig": 0}, {"d": "2021-07-05", "price": 33.0976144729828, "realized": null, "mvrv": null, "mayer": 1.548, "dd": -0.41, "prob": 0.0117, "oos": true, "label": 0, "fng": 26.0, "sig": 0}, {"d": "2021-07-12", "price": 30.8302780845789, "realized": null, "mvrv": null, "mayer": 1.371, "dd": -0.45, "prob": 0.0189, "oos": true, "label": 0, "fng": 21.9, "sig": 0}, {"d": "2021-07-19", "price": 24.6218064027707, "realized": null, "mvrv": null, "mayer": 1.052, "dd": -0.561, "prob": 0.0596, "oos": true, "label": 0, "fng": 20.1, "sig": 0}, {"d": "2021-07-26", "price": 28.3197216878654, "realized": null, "mvrv": null, "mayer": 1.166, "dd": -0.495, "prob": 0.0338, "oos": true, "label": 0, "fng": 21.1, "sig": 0}, {"d": "2021-08-02", "price": 33.352816398946, "realized": null, "mvrv": null, "mayer": 1.319, "dd": -0.405, "prob": 0.0158, "oos": true, "label": 0, "fng": 50.4, "sig": 0}, {"d": "2021-08-09", "price": 38.7730590202999, "realized": null, "mvrv": null, "mayer": 1.464, "dd": -0.308, "prob": 0.0073, "oos": true, "label": 0, "fng": 57.1, "sig": 0}, {"d": "2021-08-16", "price": 62.7306263668167, "realized": null, "mvrv": null, "mayer": 2.241, "dd": 0.0, "prob": 0.0005, "oos": true, "label": 0, "fng": 71.4, "sig": 0}, {"d": "2021-08-23", "price": 75.675567652641, "realized": null, "mvrv": null, "mayer": 2.49, "dd": -0.035, "prob": 0.0005, "oos": true, "label": 0, "fng": 74.0, "sig": 0}, {"d": "2021-08-30", "price": 110.395081467115, "realized": null, "mvrv": null, "mayer": 3.329, "dd": 0.0, "prob": 0.0002, "oos": true, "label": 0, "fng": 74.4, "sig": 0}, {"d": "2021-09-06", "price": 163.894506162576, "realized": null, "mvrv": null, "mayer": 4.364, "dd": 0.0, "prob": 0.0001, "oos": true, "label": 0, "fng": 73.7, "sig": 0}, {"d": "2021-09-13", "price": 168.794583531103, "realized": null, "mvrv": null, "mayer": 3.893, "dd": -0.114, "prob": 0.0003, "oos": true, "label": 0, "fng": 46.3, "sig": 0}, {"d": "2021-09-20", "price": 133.451779241517, "realized": null, "mvrv": null, "mayer": 2.767, "dd": -0.299, "prob": 0.0019, "oos": true, "label": 0, "fng": 47.6, "sig": 0}, {"d": "2021-09-27", "price": 136.870432434684, "realized": null, "mvrv": null, "mayer": 2.603, "dd": -0.281, "prob": 0.0019, "oos": true, "label": 0, "fng": 27.0, "sig": 0}, {"d": "2021-10-04", "price": 167.467810470509, "realized": null, "mvrv": null, "mayer": 2.914, "dd": -0.121, "prob": 0.0006, "oos": true, "label": 0, "fng": 36.1, "sig": 0}, {"d": "2021-10-11", "price": 144.183826058466, "realized": null, "mvrv": null, "mayer": 2.311, "dd": -0.243, "prob": 0.002, "oos": true, "label": 0, "fng": 70.1, "sig": 0}, {"d": "2021-10-18", "price": 157.209208354811, "realized": null, "mvrv": null, "mayer": 2.34, "dd": -0.174, "prob": 0.0013, "oos": true, "label": 0, "fng": 74.9, "sig": 0}, {"d": "2021-10-25", "price": 210.837575333597, "realized": null, "mvrv": null, "mayer": 2.889, "dd": 0.0, "prob": 0.0003, "oos": true, "label": 0, "fng": 76.4, "sig": 0}, {"d": "2021-11-01", "price": 203.616229418992, "realized": null, "mvrv": null, "mayer": 2.581, "dd": -0.034, "prob": 0.0005, "oos": true, "label": 0, "fng": 72.3, "sig": 0}, {"d": "2021-11-08", "price": 248.488270066656, "realized": null, "mvrv": null, "mayer": 2.879, "dd": -0.038, "prob": 0.0004, "oos": true, "label": 0, "fng": 73.4, "sig": 0}, {"d": "2021-11-15", "price": 237.959425322231, "realized": null, "mvrv": null, "mayer": 2.557, "dd": -0.079, "prob": 0.0006, "oos": true, "label": 0, "fng": 75.4, "sig": 0}, {"d": "2021-11-22", "price": 216.648271934217, "realized": null, "mvrv": null, "mayer": 2.187, "dd": -0.161, "prob": 0.0014, "oos": true, "label": 0, "fng": 50.4, "sig": 0}, {"d": "2021-11-29", "price": 204.81975243073, "realized": null, "mvrv": null, "mayer": 1.957, "dd": -0.207, "prob": 0.0022, "oos": true, "label": 0, "fng": 33.6, "sig": 0}, {"d": "2021-12-06", "price": 194.364632453367, "realized": null, "mvrv": null, "mayer": 1.76, "dd": -0.248, "prob": 0.0035, "oos": true, "label": 0, "fng": 28.0, "sig": 0}, {"d": "2021-12-13", "price": 156.422431784706, "realized": null, "mvrv": null, "mayer": 1.354, "dd": -0.394, "prob": 0.0141, "oos": true, "label": 0, "fng": 25.3, "sig": 0}, {"d": "2021-12-20", "price": 174.291634571366, "realized": null, "mvrv": null, "mayer": 1.446, "dd": -0.325, "prob": 0.0083, "oos": true, "label": 0, "fng": 25.6, "sig": 0}, {"d": "2021-12-27", "price": 196.428869828942, "realized": null, "mvrv": null, "mayer": 1.562, "dd": -0.24, "prob": 0.0043, "oos": true, "label": 0, "fng": 37.6, "sig": 0}, {"d": "2022-01-03", "price": 170.494280531823, "realized": null, "mvrv": null, "mayer": 1.306, "dd": -0.34, "prob": 0.0111, "oos": true, "label": 0, "fng": 28.1, "sig": 0}, {"d": "2022-01-10", "price": 135.881459319351, "realized": null, "mvrv": null, "mayer": 1.01, "dd": -0.474, "prob": 0.0399, "oos": true, "label": 0, "fng": 19.4, "sig": 0}, {"d": "2022-01-17", "price": 139.952812957314, "realized": null, "mvrv": null, "mayer": 1.01, "dd": -0.458, "prob": 0.0365, "oos": true, "label": 0, "fng": 21.6, "sig": 0}, {"d": "2022-01-24", "price": 91.8285191097713, "realized": null, "mvrv": null, "mayer": 0.65, "dd": -0.644, "prob": 0.2175, "oos": true, "label": 0, "fng": 18.3, "sig": 1}, {"d": "2022-01-31", "price": 99.6480698351041, "realized": null, "mvrv": null, "mayer": 0.694, "dd": -0.614, "prob": 0.1689, "oos": true, "label": 0, "fng": 21.7, "sig": 1}, {"d": "2022-02-07", "price": 117.399896528683, "realized": null, "mvrv": null, "mayer": 0.801, "dd": -0.545, "prob": 0.0921, "oos": true, "label": 0, "fng": 29.9, "sig": 0}, {"d": "2022-02-14", "price": 96.4609062622332, "realized": null, "mvrv": null, "mayer": 0.647, "dd": -0.627, "prob": 0.2015, "oos": true, "label": 0, "fng": 48.0, "sig": 1}, {"d": "2022-02-21", "price": 83.5922131805397, "realized": null, "mvrv": null, "mayer": 0.553, "dd": -0.676, "prob": 0.3178, "oos": true, "label": 0, "fng": 36.6, "sig": 1}, {"d": "2022-02-28", "price": 99.3263235049364, "realized": null, "mvrv": null, "mayer": 0.65, "dd": -0.615, "prob": 0.19, "oos": true, "label": 0, "fng": 23.9, "sig": 1}, {"d": "2022-03-07", "price": 82.2311701344243, "realized": null, "mvrv": null, "mayer": 0.534, "dd": -0.682, "prob": 0.3405, "oos": true, "label": 0, "fng": 34.6, "sig": 1}, {"d": "2022-03-14", "price": 81.083340495541, "realized": null, "mvrv": null, "mayer": 0.526, "dd": -0.686, "prob": 0.3538, "oos": true, "label": 0, "fng": 22.7, "sig": 1}, {"d": "2022-03-21", "price": 88.6582918722777, "realized": null, "mvrv": null, "mayer": 0.577, "dd": -0.657, "prob": 0.2759, "oos": true, "label": 0, "fng": 26.6, "sig": 1}, {"d": "2022-03-28", "price": 106.9251507453, "realized": null, "mvrv": null, "mayer": 0.706, "dd": -0.586, "prob": 0.1429, "oos": true, "label": 0, "fng": 43.4, "sig": 0}, {"d": "2022-04-04", "price": 132.435485473918, "realized": null, "mvrv": null, "mayer": 0.882, "dd": -0.487, "prob": 0.056, "oos": true, "label": 0, "fng": 52.1, "sig": 0}, {"d": "2022-04-11", "price": 99.7181911370135, "realized": null, "mvrv": null, "mayer": 0.669, "dd": -0.614, "prob": 0.1794, "oos": true, "label": 0, "fng": 38.3, "sig": 1}, {"d": "2022-04-18", "price": 102.17228180192, "realized": null, "mvrv": null, "mayer": 0.692, "dd": -0.604, "prob": 0.1621, "oos": true, "label": 0, "fng": 25.0, "sig": 1}, {"d": "2022-04-25", "price": 101.286204265131, "realized": null, "mvrv": null, "mayer": 0.696, "dd": -0.608, "prob": 0.1632, "oos": true, "label": 0, "fng": 25.4, "sig": 1}, {"d": "2022-05-02", "price": 87.6827951022793, "realized": null, "mvrv": null, "mayer": 0.611, "dd": -0.661, "prob": 0.2573, "oos": true, "label": 0, "fng": 23.6, "sig": 1}, {"d": "2022-05-09", "price": 63.9236881180596, "realized": null, "mvrv": null, "mayer": 0.455, "dd": -0.753, "prob": 0.5205, "oos": true, "label": 0, "fng": 21.3, "sig": 1}, {"d": "2022-05-16", "price": 53.8059695327719, "realized": null, "mvrv": null, "mayer": 0.397, "dd": -0.792, "prob": 0.6432, "oos": true, "label": 0, "fng": 11.0, "sig": 1}, {"d": "2022-05-23", "price": 49.0528647369105, "realized": null, "mvrv": null, "mayer": 0.378, "dd": -0.81, "prob": 0.6895, "oos": true, "label": 0, "fng": 11.9, "sig": 2}, {"d": "2022-05-30", "price": 47.2379386544056, "realized": null, "mvrv": null, "mayer": 0.384, "dd": -0.817, "prob": 0.6908, "oos": true, "label": 0, "fng": 12.0, "sig": 2}, {"d": "2022-06-06", "price": 42.4146643333601, "realized": null, "mvrv": null, "mayer": 0.364, "dd": -0.836, "prob": 0.7355, "oos": true, "label": 0, "fng": 13.3, "sig": 2}, {"d": "2022-06-13", "price": 27.6047740355521, "realized": null, "mvrv": null, "mayer": 0.251, "dd": -0.893, "prob": 0.8932, "oos": true, "label": 0, "fng": 13.3, "sig": 2}, {"d": "2022-06-20", "price": 35.1735777498005, "realized": null, "mvrv": null, "mayer": 0.339, "dd": -0.864, "prob": 0.7919, "oos": true, "label": 0, "fng": 7.4, "sig": 2}, {"d": "2022-06-27", "price": 38.544052893045, "realized": null, "mvrv": null, "mayer": 0.392, "dd": -0.851, "prob": 0.7233, "oos": true, "label": 0, "fng": 11.7, "sig": 2}, {"d": "2022-07-04", "price": 36.6568898191153, "realized": null, "mvrv": null, "mayer": 0.391, "dd": -0.858, "prob": 0.732, "oos": true, "label": 0, "fng": 12.0, "sig": 2}, {"d": "2022-07-11", "price": 33.479320179882, "realized": null, "mvrv": null, "mayer": 0.378, "dd": -0.87, "prob": 0.7594, "oos": true, "label": 0, "fng": 20.7, "sig": 2}, {"d": "2022-07-18", "price": 42.7312332770195, "realized": null, "mvrv": null, "mayer": 0.512, "dd": -0.835, "prob": 0.5782, "oos": true, "label": 0, "fng": 18.4, "sig": 2}, {"d": "2022-07-25", "price": 37.2331194564582, "realized": null, "mvrv": null, "mayer": 0.471, "dd": -0.856, "prob": 0.6482, "oos": true, "label": 0, "fng": 31.3, "sig": 2}, {"d": "2022-08-01", "price": 41.7229186762127, "realized": null, "mvrv": null, "mayer": 0.553, "dd": -0.838, "prob": 0.5454, "oos": true, "label": 0, "fng": 34.1, "sig": 2}, {"d": "2022-08-08", "price": 42.160734701799, "realized": null, "mvrv": null, "mayer": 0.586, "dd": -0.837, "prob": 0.5131, "oos": true, "label": 0, "fng": 31.0, "sig": 2}, {"d": "2022-08-15", "price": 43.660084815754, "realized": null, "mvrv": null, "mayer": 0.623, "dd": -0.831, "prob": 0.4734, "oos": true, "label": 0, "fng": 42.0, "sig": 2}, {"d": "2022-08-22", "price": 35.2296521244086, "realized": null, "mvrv": null, "mayer": 0.518, "dd": -0.864, "prob": 0.6132, "oos": true, "label": 0, "fng": 33.3, "sig": 2}, {"d": "2022-08-29", "price": 32.390367956554, "realized": null, "mvrv": null, "mayer": 0.497, "dd": -0.875, "prob": 0.6482, "oos": true, "label": 0, "fng": 26.4, "sig": 2}, {"d": "2022-09-05", "price": 32.1780796536221, "realized": null, "mvrv": null, "mayer": 0.512, "dd": -0.875, "prob": 0.6354, "oos": true, "label": 0, "fng": 22.7, "sig": 2}, {"d": "2022-09-12", "price": 37.3827770359324, "realized": null, "mvrv": null, "mayer": 0.613, "dd": -0.855, "prob": 0.5169, "oos": true, "label": 0, "fng": 23.9, "sig": 2}, {"d": "2022-09-19", "price": 32.743359056025, "realized": null, "mvrv": null, "mayer": 0.556, "dd": -0.873, "prob": 0.5915, "oos": true, "label": 0, "fng": 25.6, "sig": 2}, {"d": "2022-09-26", "price": 33.724652853461, "realized": null, "mvrv": null, "mayer": 0.592, "dd": -0.869, "prob": 0.5552, "oos": true, "label": 0, "fng": 22.4, "sig": 2}, {"d": "2022-10-03", "price": 33.0096474868498, "realized": null, "mvrv": null, "mayer": 0.598, "dd": -0.872, "prob": 0.5542, "oos": true, "label": 0, "fng": 21.6, "sig": 2}, {"d": "2022-10-10", "price": 32.0502961558771, "realized": null, "mvrv": null, "mayer": 0.603, "dd": -0.876, "prob": 0.7869, "oos": true, "label": 0, "fng": 23.1, "sig": 3}, {"d": "2022-10-17", "price": 31.1967269250506, "realized": null, "mvrv": null, "mayer": 0.619, "dd": -0.879, "prob": 0.7809, "oos": true, "label": 0, "fng": 22.3, "sig": 3}, {"d": "2022-10-24", "price": 28.3142353779039, "realized": null, "mvrv": null, "mayer": 0.604, "dd": -0.89, "prob": 0.8003, "oos": true, "label": 0, "fng": 22.3, "sig": 3}, {"d": "2022-10-31", "price": 32.6428317870819, "realized": null, "mvrv": null, "mayer": 0.737, "dd": -0.874, "prob": 0.707, "oos": true, "label": 0, "fng": 30.6, "sig": 2}, {"d": "2022-11-07", "price": 29.5071278925892, "realized": null, "mvrv": null, "mayer": 0.705, "dd": -0.886, "prob": 0.7391, "oos": true, "label": 0, "fng": 33.0, "sig": 2}, {"d": "2022-11-14", "price": 13.95429761591, "realized": null, "mvrv": null, "mayer": 0.358, "dd": -0.946, "prob": 0.9418, "oos": true, "label": 1, "fng": 24.9, "sig": 3}, {"d": "2022-11-21", "price": 11.8576454525135, "realized": null, "mvrv": null, "mayer": 0.327, "dd": -0.954, "prob": 0.9535, "oos": true, "label": 1, "fng": 22.3, "sig": 3}, {"d": "2022-11-28", "price": 13.3395853819786, "realized": null, "mvrv": null, "mayer": 0.387, "dd": -0.948, "prob": 0.9334, "oos": true, "label": 1, "fng": 22.9, "sig": 3}, {"d": "2022-12-05", "price": 13.8208257744377, "realized": null, "mvrv": null, "mayer": 0.418, "dd": -0.946, "prob": 0.9221, "oos": true, "label": 1, "fng": 26.9, "sig": 3}, {"d": "2022-12-12", "price": 13.3185052979365, "realized": null, "mvrv": null, "mayer": 0.418, "dd": -0.948, "prob": 0.9228, "oos": true, "label": 1, "fng": 26.4, "sig": 3}, {"d": "2022-12-19", "price": 11.9273547632963, "realized": null, "mvrv": null, "mayer": 0.387, "dd": -0.954, "prob": 0.9352, "oos": true, "label": 1, "fng": 28.6, "sig": 3}, {"d": "2022-12-26", "price": 11.2868379329485, "realized": null, "mvrv": null, "mayer": 0.379, "dd": -0.956, "prob": 0.9388, "oos": true, "label": 1, "fng": 28.0, "sig": 3}, {"d": "2023-01-02", "price": 11.296945538487, "realized": null, "mvrv": null, "mayer": 0.389, "dd": -0.956, "prob": 0.9356, "oos": true, "label": 1, "fng": 27.0, "sig": 3}, {"d": "2023-01-09", "price": 16.2519091785196, "realized": null, "mvrv": null, "mayer": 0.574, "dd": -0.937, "prob": 0.8539, "oos": true, "label": 0, "fng": 26.4, "sig": 3}, {"d": "2023-01-16", "price": 23.6088429256024, "realized": null, "mvrv": null, "mayer": 0.852, "dd": -0.909, "prob": 0.6869, "oos": true, "label": 0, "fng": 36.6, "sig": 2}, {"d": "2023-01-23", "price": 24.3765592726574, "realized": null, "mvrv": null, "mayer": 0.893, "dd": -0.906, "prob": 0.6618, "oos": true, "label": 0, "fng": 50.7, "sig": 2}, {"d": "2023-01-30", "price": 23.9237292589439, "realized": null, "mvrv": null, "mayer": 0.89, "dd": -0.907, "prob": 0.6658, "oos": true, "label": 0, "fng": 54.3, "sig": 2}, {"d": "2023-02-06", "price": 22.6808280831897, "realized": null, "mvrv": null, "mayer": 0.863, "dd": -0.912, "prob": 0.4243, "oos": true, "label": 0, "fng": 57.0, "sig": 1}, {"d": "2023-02-13", "price": 20.7641245026922, "realized": null, "mvrv": null, "mayer": 0.81, "dd": -0.92, "prob": 0.4674, "oos": true, "label": 0, "fng": 51.7, "sig": 1}, {"d": "2023-02-20", "price": 26.0985948263692, "realized": null, "mvrv": null, "mayer": 1.043, "dd": -0.899, "prob": 0.3163, "oos": true, "label": 0, "fng": 57.7, "sig": 1}, {"d": "2023-02-27", "price": 22.6869170032302, "realized": null, "mvrv": null, "mayer": 0.93, "dd": -0.912, "prob": 0.3876, "oos": true, "label": 0, "fng": 54.4, "sig": 1}, {"d": "2023-03-06", "price": 20.660136816247, "realized": null, "mvrv": null, "mayer": 0.874, "dd": -0.92, "prob": 0.4292, "oos": true, "label": 0, "fng": 49.9, "sig": 1}, {"d": "2023-03-13", "price": 20.3917619253469, "realized": null, "mvrv": null, "mayer": 0.884, "dd": -0.921, "prob": 0.4248, "oos": true, "label": 0, "fng": 41.7, "sig": 1}, {"d": "2023-03-20", "price": 22.2652093372543, "realized": null, "mvrv": null, "mayer": 0.981, "dd": -0.914, "prob": 0.3637, "oos": true, "label": 0, "fng": 57.4, "sig": 1}, {"d": "2023-03-27", "price": 19.8907821608824, "realized": null, "mvrv": null, "mayer": 0.891, "dd": -0.923, "prob": 0.4235, "oos": true, "label": 0, "fng": 62.9, "sig": 1}, {"d": "2023-04-03", "price": 20.4682287941263, "realized": null, "mvrv": null, "mayer": 0.938, "dd": -0.921, "prob": 0.3953, "oos": true, "label": 0, "fng": 60.9, "sig": 1}, {"d": "2023-04-10", "price": 20.9137914740565, "realized": null, "mvrv": null, "mayer": 0.976, "dd": -0.919, "prob": 0.3734, "oos": true, "label": 0, "fng": 62.1, "sig": 1}, {"d": "2023-04-17", "price": 24.6152220152336, "realized": null, "mvrv": null, "mayer": 1.166, "dd": -0.905, "prob": 0.2756, "oos": true, "label": 0, "fng": 66.7, "sig": 1}, {"d": "2023-04-24", "price": 21.3952372172802, "realized": null, "mvrv": null, "mayer": 1.032, "dd": -0.917, "prob": 0.3445, "oos": true, "label": 0, "fng": 55.0, "sig": 1}, {"d": "2023-05-01", "price": 21.993704472683, "realized": null, "mvrv": null, "mayer": 1.078, "dd": -0.915, "prob": 0.3216, "oos": true, "label": 0, "fng": 59.9, "sig": 1}, {"d": "2023-05-08", "price": 20.6592342756023, "realized": null, "mvrv": null, "mayer": 1.026, "dd": -0.92, "prob": 0.3508, "oos": true, "label": 0, "fng": 61.1, "sig": 1}, {"d": "2023-05-15", "price": 21.0380461461705, "realized": null, "mvrv": null, "mayer": 1.061, "dd": -0.919, "prob": 0.3335, "oos": true, "label": 0, "fng": 50.0, "sig": 1}, {"d": "2023-05-22", "price": 19.5591407719927, "realized": null, "mvrv": null, "mayer": 1.008, "dd": -0.924, "prob": 0.3653, "oos": true, "label": 0, "fng": 50.3, "sig": 1}, {"d": "2023-05-29", "price": 20.5992451779707, "realized": null, "mvrv": null, "mayer": 1.075, "dd": -0.92, "prob": 0.33, "oos": true, "label": 0, "fng": 50.0, "sig": 1}, {"d": "2023-06-05", "price": 20.0705716650245, "realized": null, "mvrv": null, "mayer": 1.034, "dd": -0.922, "prob": 0.3502, "oos": true, "label": 0, "fng": 51.7, "sig": 1}, {"d": "2023-06-12", "price": 15.2233792665676, "realized": null, "mvrv": null, "mayer": 0.778, "dd": -0.941, "prob": 0.5188, "oos": true, "label": 0, "fng": 48.6, "sig": 1}, {"d": "2023-06-19", "price": 15.9885756002638, "realized": null, "mvrv": null, "mayer": 0.816, "dd": -0.938, "prob": 0.4906, "oos": true, "label": 0, "fng": 46.0, "sig": 1}, {"d": "2023-06-26", "price": 16.2447794274632, "realized": null, "mvrv": null, "mayer": 0.824, "dd": -0.937, "prob": 0.4838, "oos": true, "label": 0, "fng": 59.9, "sig": 1}, {"d": "2023-07-03", "price": 19.1654591614499, "realized": null, "mvrv": null, "mayer": 0.965, "dd": -0.926, "prob": 0.3883, "oos": true, "label": 0, "fng": 59.3, "sig": 1}, {"d": "2023-07-10", "price": 21.3201062280332, "realized": null, "mvrv": null, "mayer": 1.057, "dd": -0.917, "prob": 0.3337, "oos": true, "label": 0, "fng": 57.9, "sig": 1}, {"d": "2023-07-17", "price": 26.8703504366783, "realized": null, "mvrv": null, "mayer": 1.3, "dd": -0.896, "prob": 0.2243, "oos": true, "label": 0, "fng": 57.9, "sig": 1}, {"d": "2023-07-24", "price": 23.4068227562933, "realized": null, "mvrv": null, "mayer": 1.107, "dd": -0.909, "prob": 0.303, "oos": true, "label": 0, "fng": 53.3, "sig": 1}, {"d": "2023-07-31", "price": 23.7294734945335, "realized": null, "mvrv": null, "mayer": 1.105, "dd": -0.908, "prob": 0.3022, "oos": true, "label": 0, "fng": 51.1, "sig": 1}, {"d": "2023-08-07", "price": 23.0313248175793, "realized": null, "mvrv": null, "mayer": 1.071, "dd": -0.911, "prob": 0.3194, "oos": true, "label": 0, "fng": 51.4, "sig": 1}, {"d": "2023-08-14", "price": 25.1397701713006, "realized": null, "mvrv": null, "mayer": 1.169, "dd": -0.903, "prob": 0.2723, "oos": true, "label": 0, "fng": 52.3, "sig": 1}, {"d": "2023-08-21", "price": 21.2222696073417, "realized": null, "mvrv": null, "mayer": 0.99, "dd": -0.918, "prob": 0.3647, "oos": true, "label": 0, "fng": 43.7, "sig": 1}, {"d": "2023-08-28", "price": 20.564111524402, "realized": null, "mvrv": null, "mayer": 0.964, "dd": -0.92, "prob": 0.3814, "oos": true, "label": 0, "fng": 38.4, "sig": 1}, {"d": "2023-09-04", "price": 19.440931279553, "realized": null, "mvrv": null, "mayer": 0.913, "dd": -0.925, "prob": 0.4138, "oos": true, "label": 0, "fng": 42.7, "sig": 1}, {"d": "2023-09-11", "price": 17.6702564031522, "realized": null, "mvrv": null, "mayer": 0.837, "dd": -0.932, "prob": 0.4677, "oos": true, "label": 0, "fng": 41.4, "sig": 1}, {"d": "2023-09-18", "price": 19.6579942941943, "realized": null, "mvrv": null, "mayer": 0.937, "dd": -0.924, "prob": 0.3999, "oos": true, "label": 0, "fng": 42.3, "sig": 1}, {"d": "2023-09-25", "price": 19.3783950667994, "realized": null, "mvrv": null, "mayer": 0.924, "dd": -0.925, "prob": 0.4082, "oos": true, "label": 0, "fng": 45.9, "sig": 1}, {"d": "2023-10-02", "price": 23.3766137914342, "realized": null, "mvrv": null, "mayer": 1.112, "dd": -0.909, "prob": 0.3011, "oos": true, "label": 0, "fng": 47.0, "sig": 1}, {"d": "2023-10-09", "price": 22.1005500036092, "realized": null, "mvrv": null, "mayer": 1.05, "dd": -0.914, "prob": 0.3331, "oos": true, "label": 0, "fng": 49.4, "sig": 1}, {"d": "2023-10-16", "price": 23.9950070215012, "realized": null, "mvrv": null, "mayer": 1.137, "dd": -0.907, "prob": 0.2889, "oos": true, "label": 0, "fng": 46.4, "sig": 1}, {"d": "2023-10-23", "price": 31.861773794317, "realized": null, "mvrv": null, "mayer": 1.494, "dd": -0.877, "prob": 0.1625, "oos": true, "label": 0, "fng": 53.7, "sig": 1}, {"d": "2023-10-30", "price": 34.9280238793702, "realized": null, "mvrv": null, "mayer": 1.61, "dd": -0.865, "prob": 0.1344, "oos": true, "label": 0, "fng": 69.1, "sig": 1}, {"d": "2023-11-06", "price": 41.9156093221587, "realized": null, "mvrv": null, "mayer": 1.882, "dd": -0.838, "prob": 0.0878, "oos": true, "label": 0, "fng": 68.7, "sig": 1}, {"d": "2023-11-13", "price": 52.2256079384579, "realized": null, "mvrv": null, "mayer": 2.243, "dd": -0.798, "prob": 0.0505, "oos": true, "label": 0, "fng": 69.7, "sig": 0}, {"d": "2023-11-20", "price": 56.4862696443406, "realized": null, "mvrv": null, "mayer": 2.299, "dd": -0.781, "prob": 0.0439, "oos": true, "label": 0, "fng": 66.6, "sig": 0}, {"d": "2023-11-27", "price": 55.0505918028165, "realized": null, "mvrv": null, "mayer": 2.134, "dd": -0.787, "prob": 0.0524, "oos": true, "label": 0, "fng": 68.1, "sig": 0}, {"d": "2023-12-04", "price": 61.3955271162203, "realized": null, "mvrv": null, "mayer": 2.258, "dd": -0.762, "prob": 0.0409, "oos": true, "label": 0, "fng": 72.3, "sig": 0}, {"d": "2023-12-11", "price": 70.120968561253, "realized": null, "mvrv": null, "mayer": 2.426, "dd": -0.729, "prob": 0.0294, "oos": true, "label": 0, "fng": 73.1, "sig": 0}, {"d": "2023-12-18", "price": 74.3808728527051, "realized": null, "mvrv": null, "mayer": 2.421, "dd": -0.712, "prob": 0.0268, "oos": true, "label": 0, "fng": 68.4, "sig": 0}, {"d": "2023-12-25", "price": 120.992565091737, "realized": null, "mvrv": null, "mayer": 3.617, "dd": -0.532, "prob": 0.0042, "oos": true, "label": 0, "fng": 72.1, "sig": 0}, {"d": "2024-01-01", "price": 109.22372990055, "realized": null, "mvrv": null, "mayer": 2.983, "dd": -0.577, "prob": 0.0081, "oos": true, "label": 0, "fng": 68.9, "sig": 0}, {"d": "2024-01-08", "price": 97.7622928266478, "realized": null, "mvrv": null, "mayer": 2.475, "dd": -0.622, "prob": 0.0153, "oos": true, "label": 0, "fng": 70.4, "sig": 0}, {"d": "2024-01-15", "price": 94.2959730783571, "realized": null, "mvrv": null, "mayer": 2.229, "dd": -0.635, "prob": 0.0204, "oos": true, "label": 0, "fng": 67.4, "sig": 0}, {"d": "2024-01-22", "price": 83.5585304326412, "realized": null, "mvrv": null, "mayer": 1.861, "dd": -0.676, "prob": 0.0371, "oos": true, "label": 0, "fng": 57.3, "sig": 0}, {"d": "2024-01-29", "price": 101.391354844328, "realized": null, "mvrv": null, "mayer": 2.142, "dd": -0.607, "prob": 0.0189, "oos": true, "label": 0, "fng": 51.9, "sig": 0}, {"d": "2024-02-05", "price": 95.4945170447571, "realized": null, "mvrv": null, "mayer": 1.916, "dd": -0.63, "prob": 0.0269, "oos": true, "label": 0, "fng": 61.0, "sig": 0}, {"d": "2024-02-12", "price": 111.628646159456, "realized": null, "mvrv": null, "mayer": 2.12, "dd": -0.568, "prob": 0.0154, "oos": true, "label": 0, "fng": 68.4, "sig": 0}, {"d": "2024-02-19", "price": 111.49324308151, "realized": null, "mvrv": null, "mayer": 2.0, "dd": -0.568, "prob": 0.0174, "oos": true, "label": 0, "fng": 74.3, "sig": 0}, {"d": "2024-02-26", "price": 109.959408762605, "realized": null, "mvrv": null, "mayer": 1.877, "dd": -0.574, "prob": 0.0204, "oos": true, "label": 0, "fng": 74.0, "sig": 0}, {"d": "2024-03-04", "price": 132.74581433674, "realized": null, "mvrv": null, "mayer": 2.137, "dd": -0.486, "prob": 0.0095, "oos": true, "label": 0, "fng": 80.9, "sig": 0}, {"d": "2024-03-11", "price": 148.807685687282, "realized": null, "mvrv": null, "mayer": 2.245, "dd": -0.424, "prob": 0.006, "oos": true, "label": 0, "fng": 81.9, "sig": 0}, {"d": "2024-03-18", "price": 196.894955238749, "realized": null, "mvrv": null, "mayer": 2.741, "dd": -0.238, "prob": 0.0013, "oos": true, "label": 0, "fng": 81.4, "sig": 0}, {"d": "2024-03-25", "price": 189.660473660933, "realized": null, "mvrv": null, "mayer": 2.448, "dd": -0.266, "prob": 0.002, "oos": true, "label": 0, "fng": 75.4, "sig": 0}, {"d": "2024-04-01", "price": 192.84196979793, "realized": null, "mvrv": null, "mayer": 2.308, "dd": -0.253, "prob": 0.0021, "oos": true, "label": 0, "fng": 78.9, "sig": 0}, {"d": "2024-04-08", "price": 180.70400442754, "realized": null, "mvrv": null, "mayer": 2.026, "dd": -0.3, "prob": 0.0036, "oos": true, "label": 0, "fng": 75.4, "sig": 0}, {"d": "2024-04-15", "price": 138.492224251005, "realized": null, "mvrv": null, "mayer": 1.473, "dd": -0.464, "prob": 0.0177, "oos": true, "label": 0, "fng": 75.9, "sig": 0}, {"d": "2024-04-22", "price": 157.339701458794, "realized": null, "mvrv": null, "mayer": 1.601, "dd": -0.391, "prob": 0.0098, "oos": true, "label": 0, "fng": 66.6, "sig": 0}, {"d": "2024-04-29", "price": 137.864120760561, "realized": null, "mvrv": null, "mayer": 1.345, "dd": -0.466, "prob": 0.0216, "oos": true, "label": 0, "fng": 69.1, "sig": 0}, {"d": "2024-05-06", "price": 153.043714201688, "realized": null, "mvrv": null, "mayer": 1.435, "dd": -0.407, "prob": 0.0135, "oos": true, "label": 0, "fng": 59.9, "sig": 0}, {"d": "2024-05-13", "price": 147.287452343845, "realized": null, "mvrv": null, "mayer": 1.33, "dd": -0.43, "prob": 0.0179, "oos": true, "label": 0, "fng": 59.9, "sig": 0}, {"d": "2024-05-20", "price": 186.201436318479, "realized": null, "mvrv": null, "mayer": 1.616, "dd": -0.279, "prob": 0.0051, "oos": true, "label": 0, "fng": 69.9, "sig": 0}, {"d": "2024-05-27", "price": 169.800088100336, "realized": null, "mvrv": null, "mayer": 1.418, "dd": -0.343, "prob": 0.0095, "oos": true, "label": 0, "fng": 75.3, "sig": 0}, {"d": "2024-06-03", "price": 164.830322285572, "realized": null, "mvrv": null, "mayer": 1.334, "dd": -0.362, "prob": 0.0121, "oos": true, "label": 0, "fng": 72.6, "sig": 0}, {"d": "2024-06-10", "price": 158.824483212239, "realized": null, "mvrv": null, "mayer": 1.247, "dd": -0.385, "prob": 0.0158, "oos": true, "label": 0, "fng": 74.6, "sig": 0}, {"d": "2024-06-17", "price": 143.296547178581, "realized": null, "mvrv": null, "mayer": 1.098, "dd": -0.445, "prob": 0.0287, "oos": true, "label": 0, "fng": 72.3, "sig": 0}, {"d": "2024-06-24", "price": 131.948549596883, "realized": null, "mvrv": null, "mayer": 0.992, "dd": -0.489, "prob": 0.045, "oos": true, "label": 0, "fng": 60.0, "sig": 0}, {"d": "2024-07-01", "price": 146.336804525363, "realized": null, "mvrv": null, "mayer": 1.081, "dd": -0.433, "prob": 0.0278, "oos": true, "label": 0, "fng": 41.9, "sig": 0}, {"d": "2024-07-08", "price": 139.582633674378, "realized": null, "mvrv": null, "mayer": 1.015, "dd": -0.46, "prob": 0.0365, "oos": true, "label": 0, "fng": 36.7, "sig": 0}, {"d": "2024-07-15", "price": 159.42515176833, "realized": null, "mvrv": null, "mayer": 1.148, "dd": -0.383, "prob": 0.0184, "oos": true, "label": 0, "fng": 31.3, "sig": 0}, {"d": "2024-07-22", "price": 178.78763789623, "realized": null, "mvrv": null, "mayer": 1.267, "dd": -0.308, "prob": 0.0098, "oos": true, "label": 0, "fng": 67.6, "sig": 0}, {"d": "2024-07-29", "price": 182.830771140376, "realized": null, "mvrv": null, "mayer": 1.27, "dd": -0.292, "prob": 0.0089, "oos": true, "label": 0, "fng": 70.4, "sig": 0}, {"d": "2024-08-05", "price": 130.722677269495, "realized": null, "mvrv": null, "mayer": 0.895, "dd": -0.494, "prob": 0.0564, "oos": true, "label": 0, "fng": 47.7, "sig": 0}, {"d": "2024-08-12", "price": 146.478203596754, "realized": null, "mvrv": null, "mayer": 0.988, "dd": -0.433, "prob": 0.0331, "oos": true, "label": 0, "fng": 31.1, "sig": 0}, {"d": "2024-08-19", "price": 144.105735227788, "realized": null, "mvrv": null, "mayer": 0.962, "dd": -0.442, "prob": 0.0367, "oos": true, "label": 0, "fng": 28.7, "sig": 0}, {"d": "2024-08-26", "price": 157.451659850238, "realized": null, "mvrv": null, "mayer": 1.038, "dd": -0.39, "prob": 0.0236, "oos": true, "label": 0, "fng": 42.0, "sig": 0}, {"d": "2024-09-02", "price": 135.054218143895, "realized": null, "mvrv": null, "mayer": 0.885, "dd": -0.477, "prob": 0.0526, "oos": true, "label": 0, "fng": 31.7, "sig": 0}, {"d": "2024-09-09", "price": 134.970470360935, "realized": null, "mvrv": null, "mayer": 0.88, "dd": -0.477, "prob": 0.0533, "oos": true, "label": 0, "fng": 26.0, "sig": 0}, {"d": "2024-09-16", "price": 131.493152976789, "realized": null, "mvrv": null, "mayer": 0.853, "dd": -0.491, "prob": 0.061, "oos": true, "label": 0, "fng": 39.0, "sig": 0}, {"d": "2024-09-23", "price": 144.77393926023, "realized": null, "mvrv": null, "mayer": 0.937, "dd": -0.44, "prob": 0.0382, "oos": true, "label": 0, "fng": 48.1, "sig": 0}, {"d": "2024-09-30", "price": 152.764790714645, "realized": null, "mvrv": null, "mayer": 0.988, "dd": -0.409, "prob": 0.0288, "oos": true, "label": 0, "fng": 58.9, "sig": 0}, {"d": "2024-10-07", "price": 144.587348676115, "realized": null, "mvrv": null, "mayer": 0.945, "dd": -0.44, "prob": 0.0377, "oos": true, "label": 0, "fng": 45.6, "sig": 0}, {"d": "2024-10-14", "price": 157.396389043006, "realized": null, "mvrv": null, "mayer": 1.037, "dd": -0.391, "prob": 0.0236, "oos": true, "label": 0, "fng": 45.1, "sig": 0}, {"d": "2024-10-21", "price": 166.479960849, "realized": null, "mvrv": null, "mayer": 1.106, "dd": -0.355, "prob": 0.017, "oos": true, "label": 0, "fng": 71.3, "sig": 0}, {"d": "2024-10-28", "price": 178.280495193995, "realized": null, "mvrv": null, "mayer": 1.185, "dd": -0.31, "prob": 0.0114, "oos": true, "label": 0, "fng": 71.3, "sig": 0}, {"d": "2024-11-04", "price": 157.666017756372, "realized": null, "mvrv": null, "mayer": 1.042, "dd": -0.39, "prob": 0.0233, "oos": true, "label": 0, "fng": 73.9, "sig": 0}, {"d": "2024-11-11", "price": 222.571984836447, "realized": null, "mvrv": null, "mayer": 1.454, "dd": -0.138, "prob": 0.0028, "oos": true, "label": 0, "fng": 74.4, "sig": 0}, {"d": "2024-11-18", "price": 238.988396314484, "realized": null, "mvrv": null, "mayer": 1.532, "dd": -0.075, "prob": 0.0017, "oos": true, "label": 0, "fng": 84.4, "sig": 0}, {"d": "2024-11-25", "price": 235.320293366486, "realized": null, "mvrv": null, "mayer": 1.475, "dd": -0.089, "prob": 0.002, "oos": true, "label": 0, "fng": 86.3, "sig": 0}, {"d": "2024-12-02", "price": 225.201739935198, "realized": null, "mvrv": null, "mayer": 1.385, "dd": -0.128, "prob": 0.0029, "oos": true, "label": 0, "fng": 79.1, "sig": 0}, {"d": "2024-12-09", "price": 217.990639224947, "realized": null, "mvrv": null, "mayer": 1.325, "dd": -0.156, "prob": 0.0037, "oos": true, "label": 0, "fng": 77.4, "sig": 0}, {"d": "2024-12-16", "price": 216.507327503211, "realized": null, "mvrv": null, "mayer": 1.301, "dd": -0.162, "prob": 0.004, "oos": true, "label": 0, "fng": 79.6, "sig": 0}, {"d": "2024-12-23", "price": 190.278120532627, "realized": null, "mvrv": null, "mayer": 1.136, "dd": -0.263, "prob": 0.0095, "oos": true, "label": 0, "fng": 76.1, "sig": 0}, {"d": "2024-12-30", "price": 190.503418263951, "realized": null, "mvrv": null, "mayer": 1.129, "dd": -0.262, "prob": 0.0095, "oos": true, "label": 0, "fng": 72.7, "sig": 0}, {"d": "2025-01-06", "price": 218.303776356894, "realized": null, "mvrv": null, "mayer": 1.276, "dd": -0.155, "prob": 0.004, "oos": true, "label": 0, "fng": 70.7, "sig": 0}, {"d": "2025-01-13", "price": 183.060263635278, "realized": null, "mvrv": null, "mayer": 1.059, "dd": -0.291, "prob": 0.0128, "oos": true, "label": 0, "fng": 65.6, "sig": 0}, {"d": "2025-01-20", "price": 244.77489624364, "realized": null, "mvrv": null, "mayer": 1.392, "dd": -0.063, "prob": 0.002, "oos": true, "label": 0, "fng": 73.3, "sig": 0}, {"d": "2025-01-27", "price": 234.753107133178, "realized": null, "mvrv": null, "mayer": 1.306, "dd": -0.101, "prob": 0.0028, "oos": true, "label": 0, "fng": 75.6, "sig": 0}, {"d": "2025-02-03", "price": 216.369297858599, "realized": null, "mvrv": null, "mayer": 1.188, "dd": -0.171, "prob": 0.0051, "oos": true, "label": 0, "fng": 66.0, "sig": 0}, {"d": "2025-02-10", "price": 199.945651055553, "realized": null, "mvrv": null, "mayer": 1.093, "dd": -0.234, "prob": 0.0087, "oos": true, "label": 0, "fng": 50.3, "sig": 0}, {"d": "2025-02-17", "price": 177.988340414557, "realized": null, "mvrv": null, "mayer": 0.97, "dd": -0.318, "prob": 0.0179, "oos": true, "label": 0, "fng": 49.4, "sig": 0}, {"d": "2025-02-24", "price": 141.910482514319, "realized": null, "mvrv": null, "mayer": 0.77, "dd": -0.457, "prob": 0.0615, "oos": true, "label": 0, "fng": 49.0, "sig": 0}, {"d": "2025-03-03", "price": 143.016460602786, "realized": null, "mvrv": null, "mayer": 0.777, "dd": -0.452, "prob": 0.0592, "oos": true, "label": 0, "fng": 21.6, "sig": 0}, {"d": "2025-03-10", "price": 118.919844173443, "realized": null, "mvrv": null, "mayer": 0.646, "dd": -0.545, "prob": 0.1356, "oos": true, "label": 0, "fng": 24.1, "sig": 1}, {"d": "2025-03-17", "price": 128.211739353705, "realized": null, "mvrv": null, "mayer": 0.7, "dd": -0.509, "prob": 0.0977, "oos": true, "label": 0, "fng": 34.0, "sig": 0}, {"d": "2025-03-24", "price": 140.409050397257, "realized": null, "mvrv": null, "mayer": 0.767, "dd": -0.462, "prob": 0.064, "oos": true, "label": 0, "fng": 36.1, "sig": 0}, {"d": "2025-03-31", "price": 124.994382040483, "realized": null, "mvrv": null, "mayer": 0.683, "dd": -0.521, "prob": 0.1091, "oos": true, "label": 0, "fng": 38.4, "sig": 1}, {"d": "2025-04-07", "price": 107.261107966053, "realized": null, "mvrv": null, "mayer": 0.588, "dd": -0.589, "prob": 0.1983, "oos": true, "label": 1, "fng": 31.1, "sig": 1}, {"d": "2025-04-14", "price": 129.667306540354, "realized": null, "mvrv": null, "mayer": 0.714, "dd": -0.503, "prob": 0.0913, "oos": true, "label": 0, "fng": 32.1, "sig": 0}, {"d": "2025-04-21", "price": 136.127675993784, "realized": null, "mvrv": null, "mayer": 0.752, "dd": -0.479, "prob": 0.0726, "oos": true, "label": 0, "fng": 34.0, "sig": 0}, {"d": "2025-04-28", "price": 147.944362635189, "realized": null, "mvrv": null, "mayer": 0.816, "dd": -0.433, "prob": 0.0484, "oos": true, "label": 0, "fng": 60.3, "sig": 0}, {"d": "2025-05-05", "price": 146.963007182369, "realized": null, "mvrv": null, "mayer": 0.812, "dd": -0.437, "prob": 0.05, "oos": true, "label": 0, "fng": 59.6, "sig": 0}, {"d": "2025-05-12", "price": 174.313098085565, "realized": null, "mvrv": null, "mayer": 0.963, "dd": -0.333, "prob": 0.0197, "oos": true, "label": 0, "fng": 67.7, "sig": 0}, {"d": "2025-05-19", "price": 166.755710316193, "realized": null, "mvrv": null, "mayer": 0.921, "dd": -0.361, "prob": 0.0254, "oos": true, "label": 0, "fng": 72.3, "sig": 0}, {"d": "2025-05-26", "price": 174.669870446313, "realized": null, "mvrv": null, "mayer": 0.965, "dd": -0.331, "prob": 0.0195, "oos": true, "label": 0, "fng": 72.0, "sig": 0}, {"d": "2025-06-02", "price": 156.890425372747, "realized": null, "mvrv": null, "mayer": 0.874, "dd": -0.399, "prob": 0.0349, "oos": true, "label": 0, "fng": 64.1, "sig": 0}, {"d": "2025-06-09", "price": 160.651242111632, "realized": null, "mvrv": null, "mayer": 0.91, "dd": -0.385, "prob": 0.0297, "oos": true, "label": 0, "fng": 57.7, "sig": 0}, {"d": "2025-06-16", "price": 152.109239667858, "realized": null, "mvrv": null, "mayer": 0.877, "dd": -0.418, "prob": 0.0384, "oos": true, "label": 0, "fng": 65.6, "sig": 0}, {"d": "2025-06-23", "price": 144.810037720137, "realized": null, "mvrv": null, "mayer": 0.851, "dd": -0.445, "prob": 0.0476, "oos": true, "label": 0, "fng": 52.7, "sig": 0}, {"d": "2025-06-30", "price": 155.133172799429, "realized": null, "mvrv": null, "mayer": 0.927, "dd": -0.406, "prob": 0.0322, "oos": true, "label": 0, "fng": 67.0, "sig": 0}, {"d": "2025-07-07", "price": 148.730286162153, "realized": null, "mvrv": null, "mayer": 0.902, "dd": -0.43, "prob": 0.0391, "oos": true, "label": 0, "fng": 68.4, "sig": 0}, {"d": "2025-07-14", "price": 162.179018462454, "realized": null, "mvrv": null, "mayer": 0.989, "dd": -0.379, "prob": 0.0243, "oos": true, "label": 0, "fng": 71.4, "sig": 0}, {"d": "2025-07-21", "price": 196.414019374339, "realized": null, "mvrv": null, "mayer": 1.202, "dd": -0.248, "prob": 0.0077, "oos": true, "label": 0, "fng": 72.4, "sig": 0}, {"d": "2025-07-28", "price": 183.190898850745, "realized": null, "mvrv": null, "mayer": 1.126, "dd": -0.299, "prob": 0.0118, "oos": true, "label": 0, "fng": 72.4, "sig": 0}, {"d": "2025-08-04", "price": 169.384935446644, "realized": null, "mvrv": null, "mayer": 1.046, "dd": -0.351, "prob": 0.0186, "oos": true, "label": 0, "fng": 65.1, "sig": 0}, {"d": "2025-08-11", "price": 174.946328138741, "realized": null, "mvrv": null, "mayer": 1.098, "dd": -0.33, "prob": 0.0149, "oos": true, "label": 0, "fng": 65.1, "sig": 0}, {"d": "2025-08-18", "price": 183.457565184741, "realized": null, "mvrv": null, "mayer": 1.164, "dd": -0.298, "prob": 0.011, "oos": true, "label": 0, "fng": 65.1, "sig": 0}, {"d": "2025-08-25", "price": 186.955582301789, "realized": null, "mvrv": null, "mayer": 1.19, "dd": -0.284, "prob": 0.0097, "oos": true, "label": 0, "fng": 51.4, "sig": 0}, {"d": "2025-09-01", "price": 196.474716396856, "realized": null, "mvrv": null, "mayer": 1.249, "dd": -0.248, "prob": 0.0071, "oos": true, "label": 0, "fng": 47.1, "sig": 0}, {"d": "2025-09-08", "price": 214.096272820847, "realized": null, "mvrv": null, "mayer": 1.354, "dd": -0.18, "prob": 0.0041, "oos": true, "label": 0, "fng": 49.4, "sig": 0}, {"d": "2025-09-15", "price": 233.947750679759, "realized": null, "mvrv": null, "mayer": 1.454, "dd": -0.104, "prob": 0.0023, "oos": true, "label": 0, "fng": 52.6, "sig": 0}, {"d": "2025-09-22", "price": 220.322881779299, "realized": null, "mvrv": null, "mayer": 1.343, "dd": -0.156, "prob": 0.0036, "oos": true, "label": 0, "fng": 50.3, "sig": 0}, {"d": "2025-09-29", "price": 213.074723759651, "realized": null, "mvrv": null, "mayer": 1.277, "dd": -0.184, "prob": 0.0047, "oos": true, "label": 0, "fng": 39.9, "sig": 0}, {"d": "2025-10-06", "price": 232.900508483076, "realized": null, "mvrv": null, "mayer": 1.369, "dd": -0.108, "prob": 0.0037, "oos": false, "label": null, "fng": 63.1, "sig": 0}, {"d": "2025-10-13", "price": 208.38123976926, "realized": null, "mvrv": null, "mayer": 1.207, "dd": -0.202, "prob": 0.0075, "oos": false, "label": null, "fng": 50.4, "sig": 0}, {"d": "2025-10-20", "price": 190.067982779152, "realized": null, "mvrv": null, "mayer": 1.086, "dd": -0.272, "prob": 0.0129, "oos": false, "label": null, "fng": 29.0, "sig": 0}, {"d": "2025-10-27", "price": 198.456055076549, "realized": null, "mvrv": null, "mayer": 1.117, "dd": -0.24, "prob": 0.0104, "oos": false, "label": null, "fng": 34.9, "sig": 0}, {"d": "2025-11-03", "price": 165.761799878367, "realized": null, "mvrv": null, "mayer": 0.922, "dd": -0.365, "prob": 0.0272, "oos": false, "label": null, "fng": 39.4, "sig": 0}, {"d": "2025-11-10", "price": 167.616402048355, "realized": null, "mvrv": null, "mayer": 0.929, "dd": -0.358, "prob": 0.0259, "oos": false, "label": null, "fng": 23.7, "sig": 0}, {"d": "2025-11-17", "price": 130.626934539865, "realized": null, "mvrv": null, "mayer": 0.725, "dd": -0.5, "prob": 0.0779, "oos": false, "label": null, "fng": 16.4, "sig": 0}, {"d": "2025-11-24", "price": 138.562818171212, "realized": null, "mvrv": null, "mayer": 0.772, "dd": -0.469, "prob": 0.061, "oos": false, "label": null, "fng": 13.4, "sig": 0}, {"d": "2025-12-01", "price": 126.9152607135, "realized": null, "mvrv": null, "mayer": 0.712, "dd": -0.514, "prob": 0.0858, "oos": false, "label": null, "fng": 23.1, "sig": 0}, {"d": "2025-12-08", "price": 133.193660233132, "realized": null, "mvrv": null, "mayer": 0.752, "dd": -0.49, "prob": 0.0702, "oos": false, "label": null, "fng": 24.0, "sig": 0}, {"d": "2025-12-15", "price": 127.425330387544, "realized": null, "mvrv": null, "mayer": 0.725, "dd": -0.512, "prob": 0.0826, "oos": false, "label": null, "fng": 23.7, "sig": 0}, {"d": "2025-12-22", "price": 125.680077730758, "realized": null, "mvrv": null, "mayer": 0.72, "dd": -0.519, "prob": 0.0864, "oos": false, "label": null, "fng": 17.9, "sig": 0}, {"d": "2025-12-29", "price": 123.168092522111, "realized": null, "mvrv": null, "mayer": 0.71, "dd": -0.528, "prob": 0.0923, "oos": false, "label": null, "fng": 23.1, "sig": 0}, {"d": "2026-01-05", "price": 138.302232540917, "realized": null, "mvrv": null, "mayer": 0.8, "dd": -0.47, "prob": 0.0579, "oos": false, "label": null, "fng": 24.6, "sig": 0}, {"d": "2026-01-12", "price": 139.071584984787, "realized": null, "mvrv": null, "mayer": 0.805, "dd": -0.467, "prob": 0.0565, "oos": false, "label": null, "fng": 31.7, "sig": 0}, {"d": "2026-01-19", "price": 133.419120107595, "realized": null, "mvrv": null, "mayer": 0.773, "dd": -0.489, "prob": 0.0669, "oos": false, "label": null, "fng": 46.7, "sig": 0}, {"d": "2026-01-26", "price": 124.2535859365, "realized": null, "mvrv": null, "mayer": 0.724, "dd": -0.524, "prob": 0.0878, "oos": false, "label": null, "fng": 24.3, "sig": 0}, {"d": "2026-02-02", "price": 104.53179869333, "realized": null, "mvrv": null, "mayer": 0.616, "dd": -0.6, "prob": 0.1579, "oos": false, "label": null, "fng": 21.1, "sig": 1}, {"d": "2026-02-09", "price": 86.8825294609641, "realized": null, "mvrv": null, "mayer": 0.522, "dd": -0.667, "prob": 0.2602, "oos": false, "label": null, "fng": 11.3, "sig": 1}, {"d": "2026-02-16", "price": 86.3065806307341, "realized": null, "mvrv": null, "mayer": 0.53, "dd": -0.67, "prob": 0.2579, "oos": false, "label": null, "fng": 9.0, "sig": 1}, {"d": "2026-02-23", "price": 77.9490929560836, "realized": null, "mvrv": null, "mayer": 0.487, "dd": -0.702, "prob": 0.321, "oos": false, "label": null, "fng": 8.0, "sig": 1}, {"d": "2026-03-02", "price": 86.830958456207, "realized": null, "mvrv": null, "mayer": 0.555, "dd": -0.668, "prob": 0.2413, "oos": false, "label": null, "fng": 11.1, "sig": 1}, {"d": "2026-03-09", "price": 85.1603995103884, "realized": null, "mvrv": null, "mayer": 0.557, "dd": -0.674, "prob": 0.2466, "oos": false, "label": null, "fng": 13.7, "sig": 1}, {"d": "2026-03-16", "price": 96.0671435365737, "realized": null, "mvrv": null, "mayer": 0.645, "dd": -0.632, "prob": 0.1707, "oos": false, "label": null, "fng": 16.4, "sig": 1}, {"d": "2026-03-23", "price": 91.2916164493068, "realized": null, "mvrv": null, "mayer": 0.63, "dd": -0.65, "prob": 0.1908, "oos": false, "label": null, "fng": 16.9, "sig": 1}, {"d": "2026-03-30", "price": 82.405674995971, "realized": null, "mvrv": null, "mayer": 0.587, "dd": -0.684, "prob": 0.2408, "oos": false, "label": null, "fng": 11.0, "sig": 1}, {"d": "2026-04-06", "price": 79.9855533279269, "realized": null, "mvrv": null, "mayer": 0.593, "dd": -0.694, "prob": 0.2464, "oos": false, "label": null, "fng": 10.9, "sig": 1}, {"d": "2026-04-13", "price": 86.4859140418565, "realized": null, "mvrv": null, "mayer": 0.665, "dd": -0.669, "prob": 0.1916, "oos": false, "label": null, "fng": 14.4, "sig": 1}, {"d": "2026-04-20", "price": 85.3313442245737, "realized": null, "mvrv": null, "mayer": 0.679, "dd": -0.673, "prob": 0.1896, "oos": false, "label": null, "fng": 24.3, "sig": 1}, {"d": "2026-04-27", "price": 84.6975842814882, "realized": null, "mvrv": null, "mayer": 0.702, "dd": -0.676, "prob": 0.1832, "oos": false, "label": null, "fng": 37.3, "sig": 0}, {"d": "2026-05-04", "price": 84.0923832123801, "realized": null, "mvrv": null, "mayer": 0.72, "dd": -0.678, "prob": 0.1788, "oos": false, "label": null, "fng": 34.3, "sig": 0}, {"d": "2026-05-11", "price": 97.3093422507639, "realized": null, "mvrv": null, "mayer": 0.857, "dd": -0.627, "prob": 0.1109, "oos": false, "label": null, "fng": 44.9, "sig": 0}, {"d": "2026-05-18", "price": 85.3647757423663, "realized": null, "mvrv": null, "mayer": 0.777, "dd": -0.673, "prob": 0.1573, "oos": false, "label": null, "fng": 36.3, "sig": 0}, {"d": "2026-05-25", "price": 84.9895648133136, "realized": null, "mvrv": null, "mayer": 0.796, "dd": -0.675, "prob": 0.1532, "oos": false, "label": null, "fng": 27.4, "sig": 0}, {"d": "2026-06-01", "price": 81.1979244765853, "realized": null, "mvrv": null, "mayer": 0.78, "dd": -0.689, "prob": 0.1681, "oos": false, "label": null, "fng": 26.3, "sig": 0}, {"d": "2026-06-08", "price": 66.8251573825848, "realized": null, "mvrv": null, "mayer": 0.657, "dd": -0.744, "prob": 0.2641, "oos": false, "label": null, "fng": 12.9, "sig": 1}, {"d": "2026-06-15", "price": 73.8456650551761, "realized": null, "mvrv": null, "mayer": 0.743, "dd": -0.717, "prob": 0.2023, "oos": false, "label": null, "fng": 13.4, "sig": 0}, {"d": "2026-06-22", "price": 71.9079789086314, "realized": null, "mvrv": null, "mayer": 0.741, "dd": -0.725, "prob": 0.2096, "oos": false, "label": null, "fng": 20.0, "sig": 0}, {"d": "2026-06-29", "price": 75.0041877312953, "realized": null, "mvrv": null, "mayer": 0.791, "dd": -0.713, "prob": 0.1826, "oos": false, "label": null, "fng": 15.7, "sig": 0}, {"d": "2026-07-06", "price": 81.9972262304105, "realized": null, "mvrv": null, "mayer": 0.88, "dd": -0.686, "prob": 0.1397, "oos": false, "label": null, "fng": 19.3, "sig": 0}, {"d": "2026-07-13", "price": 74.7132279243878, "realized": null, "mvrv": null, "mayer": 0.816, "dd": -0.714, "prob": 0.1757, "oos": false, "label": null, "fng": 24.6, "sig": 0}, {"d": "2026-07-20", "price": 77.6939338978168, "realized": null, "mvrv": null, "mayer": 0.865, "dd": -0.702, "prob": 0.1542, "oos": false, "label": null, "fng": 25.9, "sig": 0}, {"d": "2026-07-27", "price": 74.1022890550584, "realized": null, "mvrv": null, "mayer": 0.845, "dd": -0.716, "prob": 0.1693, "oos": false, "label": null, "fng": 28.6, "sig": 0}, {"d": "2026-08-03", "price": 73.4220010898139, "realized": null, "mvrv": null, "mayer": 0.86, "dd": -0.719, "prob": 0.167, "oos": false, "label": null, "fng": 27.6, "sig": 0}, {"d": "2026-08-10", "price": 75.9975654227381, "realized": null, "mvrv": null, "mayer": 0.913, "dd": -0.709, "prob": 0.147, "oos": false, "label": null, "fng": 28.1, "sig": 0}, {"d": "2026-08-17", "price": 75.9131490453267, "realized": null, "mvrv": null, "mayer": 0.931, "dd": -0.709, "prob": 0.1432, "oos": false, "label": null, "fng": 30.4, "sig": 0}, {"d": "2026-08-24", "price": 98.3805046185731, "realized": null, "mvrv": null, "mayer": 1.211, "dd": -0.623, "prob": 0.0642, "oos": false, "label": null, "fng": 61.6, "sig": 0}, {"d": "2026-08-31", "price": 103.032099228461, "realized": null, "mvrv": null, "mayer": 1.258, "dd": -0.605, "prob": 0.0554, "oos": false, "label": null, "fng": 68.9, "sig": 0}, {"d": "2026-09-07", "price": 103.801881575748, "realized": null, "mvrv": null, "mayer": 1.258, "dd": -0.603, "prob": 0.1535, "oos": false, "label": null, "fng": 69.7, "sig": 1}, {"d": "2026-09-14", "price": 102.645201034023, "realized": null, "mvrv": null, "mayer": 1.234, "dd": -0.607, "prob": 0.1607, "oos": false, "label": null, "fng": 63.0, "sig": 1}, {"d": "2026-09-21", "price": 118.812532921755, "realized": null, "mvrv": null, "mayer": 1.416, "dd": -0.545, "prob": 0.0991, "oos": false, "label": null, "fng": 62.6, "sig": 1}, {"d": "2026-09-28", "price": 118.751876034316, "realized": null, "mvrv": null, "mayer": 1.395, "dd": -0.545, "prob": 0.1015, "oos": false, "label": null, "fng": 72.7, "sig": 1}, {"d": "2026-10-01", "price": 118.336492465472, "realized": null, "mvrv": null, "mayer": 1.383, "dd": -0.547, "prob": 0.1035, "oos": false, "label": null, "fng": 72.4, "sig": 1}], "predictions": [{"date": "2026-10-01", "price": 118.336492465472, "prob": 0.1035, "signals": 1, "model_version": "alt-v1.0", "low_since": null, "change_now": 0.0}], "live_score": {"n": 0, "brier": null}, "changelog": [{"date": "2026-10-02", "version": "v1.0", "change": "初版。指標5種（MVRV・メイヤー倍率・最高値からの下落率・ハッシュリボン・サイクル時期）＋恐怖強欲指数。1年／3か月の底値圏確率をロジスティック回帰で算出し、半減期サイクルごとの抜き取り検証で精度を確認。"}, {"date": "2026-10-02", "version": "alt-v1.0", "change": "ETH・XRP・SOL・HYPEのページを追加。アルトは価格系3指標（メイヤー倍率・下落率・BTC基準のサイクル時期）の共通モデルをBTC・ETH・XRP・SOLの過去データで学習。銘柄を外した検証でAUCはETH 0.90、XRP 0.78、SOL 0.97。MVRVを加えたモデルはXRPで0.64に下がったため不採用。HYPEは答えが出ている期間がなく参考値。"}]};
+
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const usd = v => v == null ? "—" : "$" + (v >= 100 ? Math.round(v).toLocaleString("en-US") : v >= 1 ? v.toFixed(2) : v.toFixed(4));
+const pct = (v, d = 0) => v == null ? "—" : (v * 100).toFixed(d) + "%";
+const C = D.current, T = D.config.thresholds, H = D.history;
+
+const A = D.asset || { code: "btc", symbol: "BTC", name: "ビットコイン" };
+const NS = D.n_signals || 5;
+const isBtc = A.code === "btc", hasReal = H.some(r => r.realized);
+document.querySelectorAll(".assets a").forEach(a => { if (a.dataset.a === A.code) a.setAttribute("aria-current", "page"); });
+document.querySelectorAll("[data-for]").forEach(el => {
+  const f = el.dataset.for;
+  el.hidden = (f === "btc" && !isBtc) || (f === "alt" && isBtc) || (f === "mvrv" && !hasReal);
+});
+if (!isBtc) {
+  $("sym").textContent = A.symbol;
+  $("ttl").textContent = "底値モニター";
+  $("assetNote").textContent = `${A.name}（${A.symbol}）：${A.note}`;
+  $("assetNote").hidden = false;
+  $("probNote").textContent = `価格系の${NS}指標を使う共通モデルです。${D.pool.join("・")}の過去データで学習しています。`;
+  $("indLead").textContent = `${NS}つの指標が「点灯」すると底値圏に近いサインです。確率はメイヤー倍率・下落率・サイクル時期から計算します。恐怖・強欲指数とMVRVは参考表示です。`;
+  $("scoreLead").textContent = `${D.pool.join("・")}の各日について、点灯数ごとに「実際に底値圏だった日の割合」を集計しました。濃い棒が今の点灯数です。`;
+  $("perfLead").textContent = D.model.held_out
+    ? `${A.symbol}を学習から外したモデルで、${A.symbol}の過去を当てられるかを試しました。`
+    : `${A.symbol}はまだ答えが出ている期間がないため、独自の検証はできていません。他の銘柄で作ったモデルを当てはめています。`;
+  $("probLead").textContent = `答えが出ている期間は、${A.symbol}を学習に使わないモデルで計算した値です。そのため「当時予測していたら何%と出たか」に近い数字になっています。直近1年はまだ答えが出ていません。`;
+  $("histLead").textContent = "毎週月曜の指標値と確率、実際に底値圏だったかの答えです。年を選ぶと切り替わります。";
+  if (!hasReal) {
+    $("priceTitle").textContent = "価格（対数目盛）";
+    $("realLegend").hidden = true;
+    $("priceLead").textContent = "緑の帯は、後から振り返って実際に底値圏だった期間です（前後1年の最安値から1.5倍以内）。";
+  }
+}
+$("dataDate").textContent = D.data_date;
+$("generated").textContent = D.generated;
+$("ver").textContent = D.model_version;
+
+// 判定
+const p = D.prob;
+const level = p >= 0.5 ? ["底値圏の可能性が高い", "--good", "複数の指標が過去の大底と同じ水準です。"]
+  : p >= 0.2 ? ["底値圏に接近中", "--warn", "一部の指標が底値圏に入りつつあります。点灯数の増加に注意してください。"]
+  : ["底値圏ではない", "--crit", "過去の大底の水準にはまだ距離があります。"];
+$("state").innerHTML = `<i class="dot" style="background:var(${level[1]})"></i>${level[0]}`;
+const gap = C.realized ? C.price / C.realized - 1 : null;
+$("stateNote").textContent = level[2] + (gap == null ? "" : ` 価格は平均取得単価（実現価格）より${pct(Math.abs(gap), 0)}${gap >= 0 ? "上" : "下"}です。`);
+$("prob").innerHTML = `${(p * 100).toFixed(0)}<small>%</small>`;
+$("probBar").style.width = (p * 100).toFixed(1) + "%";
+const sc = D.scorecard.find(s => s.count === D.signal_count);
+$("sig").innerHTML = `${D.signal_count}<small>/ ${NS}</small>`;
+$("sigNote").textContent = sc ? `過去に${D.signal_count}個点灯していた日のうち、実際に底値圏だったのは ${pct(sc.hit, 0)}（${sc.days.toLocaleString()}日中）。` : "";
+
+// 指標表
+const pill = st => st === "on" ? '<span class="pill on"><i class="dot" style="background:var(--good)"></i>点灯</span>'
+  : st === "off" ? '<span class="pill off"><i class="dot" style="background:var(--muted)"></i>未点灯</span>'
+  : st === "same" ? '<span class="pill na">MVRVと同じ</span>' : st === "ref" ? '<span class="pill na">参考</span>' : '<span class="pill na">データなし</span>';
+$("indTable").innerHTML = D.indicators.map(r => `<tr><td><span class="ind-name">${r.name}</span><span class="ind-desc">${r.desc}</span></td>
+  <td class="r num">${r.value}</td><td class="r num">${r.threshold}</td><td>${pill(r.state)}</td></tr>`).join("");
+
+// スコアカード表・成績表
+$("scoreTable").innerHTML = D.scorecard.map(s => `<tr${s.count === D.signal_count ? ' style="font-weight:700"' : ""}><td class="num">${s.count}個${s.count === D.signal_count ? "（現在）" : ""}</td><td class="r num">${s.days.toLocaleString()}</td><td class="r num">${pct(s.hit, 1)}</td></tr>`).join("");
+const M = D.model;
+$("perfTable").innerHTML = M.auc == null ? `<tr><td class="empty">答えが出ている期間がまだないため、${A.symbol}自身での成績は出せません。他の銘柄で作ったモデルを当てはめた参考値です。</td></tr>` : [
+  ["判別力（AUC）", M.auc.toFixed(3), "0.5は当てずっぽう、1.0は完全"],
+  ["誤差（Brierスコア）", M.brier_model.toFixed(3), `何も見ずに平均値で答えた場合は ${M.brier_base.toFixed(3)}（小さいほど良い）`],
+  ["過去の底値圏の割合", pct(M.base_rate, 1), `学習した日数 ${M.n_train.toLocaleString()}日`],
+].map(r => `<tr><td>${r[0]}</td><td class="r num" style="font-weight:600">${r[1]}</td><td class="sub">${r[2]}</td></tr>`).join("");
+$("calTable").innerHTML = M.auc == null ? '<tr><td colspan="3" class="empty">答え合わせできる期間がまだありません。</td></tr>' : M.calibration.map(b => `<tr><td class="num">${b.range}</td><td class="r num">${b.n.toLocaleString()}</td><td class="r num">${pct(b.hit, 0)}</td></tr>`).join("");
+
+// 予測記録
+const preds = [...D.predictions].reverse();
+$("predTable").innerHTML = preds.length ? preds.map(x => `<tr><td class="num">${x.date}</td><td class="r num">${usd(x.price)}</td><td class="r num">${pct(x.prob, 0)}</td><td class="r num">${x.signals}/${NS}</td>
+  <td class="r num">${usd(x.low_since)}</td><td class="r num">${x.change_now == null ? "—" : (x.change_now >= 0 ? "+" : "") + pct(x.change_now, 1)}</td>
+  <td>${x.result == null ? '<span class="pill na">判定待ち（' + x.date.slice(0,4) + '年+1年）</span>' : x.result ? '<span class="pill on">底値圏だった</span>' : '<span class="pill off">底値圏ではなかった</span>'}</td></tr>`).join("")
+  : '<tr><td colspan="7" class="empty">まだ記録がありません。</td></tr>';
+$("liveScore").textContent = D.live_score.n ? `答え合わせ済み ${D.live_score.n}件、Brierスコア ${D.live_score.brier.toFixed(3)}` : "答え合わせ済みの記録はまだありません。最初の判定は記録から1年後です。";
+$("logTable").innerHTML = [...D.changelog].reverse().map(c => `<tr><td class="num" style="white-space:nowrap">${c.date}</td><td class="num">${c.version}</td><td>${c.change}</td></tr>`).join("");
+
+
+// 過去の週次記録（年別）
+const years = [...new Set(H.map(r => r.d.slice(0, 4)))].reverse();
+let year = years[0];
+function drawYear(y) {
+  year = y;
+  document.querySelectorAll("#yearBtns button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.y === y)));
+  $("histTable").innerHTML = H.filter(r => r.d.startsWith(y)).reverse().map(r => `<tr><td class="num">${r.d}</td><td class="r num">${usd(r.price)}</td><td class="r num">${usd(r.realized)}</td>
+    <td class="r num">${r.mvrv == null ? "—" : r.mvrv.toFixed(2)}</td><td class="r num">${r.mayer.toFixed(2)}</td><td class="r num">${pct(r.dd, 0)}</td><td class="r num">${r.fng == null ? "—" : r.fng.toFixed(0)}</td>
+    <td class="r num">${r.sig}/${NS}</td><td class="r num" style="font-weight:600">${pct(r.prob, 0)}</td>
+    <td>${r.label == null ? '<span class="pill na">判定待ち</span>' : r.label ? '<span class="pill on"><i class="dot" style="background:var(--good)"></i>底値圏</span>' : '<span class="pill off">—</span>'}</td></tr>`).join("");
+}
+$("yearBtns").innerHTML = years.map(y => `<button type="button" data-y="${y}">${y}</button>`).join("");
+document.querySelectorAll("#yearBtns button").forEach(b => b.addEventListener("click", () => drawYear(b.dataset.y)));
+drawYear(year);
+
+// ---------- チャート ----------
+let charts = [];
+function baseOpts(extra) {
+  const ink = css("--muted"), grid = css("--line");
+  return Object.assign({
+    responsive: true, maintainAspectRatio: false, animation: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: { legend: { display: false }, tooltip: { backgroundColor: css("--panel"), titleColor: css("--fg"), bodyColor: css("--fg-2"), borderColor: grid, borderWidth: 1, padding: 10 } },
+    scales: {
+      x: { ticks: { color: ink, maxRotation: 0, autoSkipPadding: 24, callback(v) { return this.getLabelForValue(v).slice(0, 7); } }, grid: { display: false }, border: { color: grid } },
+    },
+  }, extra);
+}
+// 実際の底値圏を帯で描くプラグイン
+const zonePlugin = {
+  id: "zones",
+  beforeDatasetsDraw(chart, _, opts) {
+    const { ctx, chartArea: a, scales: { x } } = chart;
+    const lab = chart.$labels || [];
+    ctx.save(); ctx.fillStyle = css("--zone");
+    const w = Math.max(1, (a.right - a.left) / Math.max(1, lab.length));
+    lab.forEach((l, i) => { if (l === 1) ctx.fillRect(x.getPixelForValue(i) - w / 2, a.top, w + 0.5, a.bottom - a.top); });
+    ctx.restore();
+  }
+};
+
+function draw(range) {
+  charts.forEach(c => c.destroy()); charts = [];
+  let h = H;
+  if (range !== "all") {
+    const cut = new Date(D.data_date); cut.setFullYear(cut.getFullYear() - Number(range));
+    const c = cut.toISOString().slice(0, 10);
+    h = H.filter(r => r.d >= c);
+  }
+  const labels = h.map(r => r.d);
+  const pc = new Chart($("priceChart"), {
+    type: "line",
+    data: { labels, datasets: [
+      { label: "価格", data: h.map(r => r.price), borderColor: css("--series-1"), borderWidth: 2, pointRadius: 0, tension: 0 },
+      { label: "実現価格", data: h.map(r => r.realized), borderColor: css("--series-2"), borderWidth: 2, pointRadius: 0, tension: 0 },
+    ] },
+    options: baseOpts({
+      scales: Object.assign(baseOpts().scales, { y: { type: "logarithmic", ticks: { color: css("--muted"), callback: v => { const s = String(v); return /^[125]0*$/.test(s) ? usd(v) : ""; } }, grid: { color: css("--line") }, border: { display: false } } }),
+      plugins: Object.assign(baseOpts().plugins, { tooltip: Object.assign(baseOpts().plugins.tooltip, { callbacks: { label: c => `${c.dataset.label}: ${usd(c.parsed.y)}` } }) }),
+    }),
+    plugins: [zonePlugin],
+  });
+  pc.$labels = h.map(r => r.label); pc.update();
+  const pr = new Chart($("probChart"), {
+    type: "line",
+    data: { labels, datasets: [{ label: "底値圏の確率", data: h.map(r => r.prob * 100), borderColor: css("--accent"), backgroundColor: css("--accent") + "33", fill: true, borderWidth: 2, pointRadius: 0, tension: 0 }] },
+    options: baseOpts({
+      scales: Object.assign(baseOpts().scales, { y: { min: 0, max: 100, ticks: { color: css("--muted"), stepSize: 25, callback: v => v + "%" }, grid: { color: css("--line") }, border: { display: false } } }),
+      plugins: Object.assign(baseOpts().plugins, { tooltip: Object.assign(baseOpts().plugins.tooltip, { callbacks: { label: c => `確率: ${c.parsed.y.toFixed(0)}%${h[c.dataIndex].oos ? "（検証値）" : "（答え待ち）"}`, afterLabel: c => `点灯数: ${h[c.dataIndex].sig}/5` } }) }),
+    }),
+    plugins: [zonePlugin],
+  });
+  pr.$labels = h.map(r => r.label); pr.update();
+  charts.push(pc, pr);
+}
+
+let scoreChart;
+function drawScore() {
+  if (scoreChart) scoreChart.destroy();
+  scoreChart = new Chart($("scoreChart"), {
+    type: "bar",
+    data: { labels: D.scorecard.map(s => s.count + "個"), datasets: [{ data: D.scorecard.map(s => s.hit * 100),
+      backgroundColor: D.scorecard.map(s => s.count === D.signal_count ? css("--accent") : css("--series-1") + "66"),
+      borderRadius: { topLeft: 4, topRight: 4 }, borderSkipped: "bottom", maxBarThickness: 36 }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `的中率 ${c.parsed.y.toFixed(1)}%（${D.scorecard[c.dataIndex].days}日）` } } },
+      scales: { x: { ticks: { color: css("--muted") }, grid: { display: false } },
+                y: { min: 0, max: 100, ticks: { color: css("--muted"), stepSize: 25, callback: v => v + "%" }, grid: { color: css("--line") }, border: { display: false } } } },
+  });
+}
+
+let current = "8";
+try { current = localStorage.getItem("btcRange") || "8"; } catch (e) {}
+function setRange(r) {
+  current = r;
+  document.querySelectorAll(".ranges button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.range === r)));
+  try { localStorage.setItem("btcRange", r); } catch (e) {}
+  draw(r);
+}
+document.querySelectorAll(".ranges button").forEach(b => b.addEventListener("click", () => setRange(b.dataset.range)));
+function all() { setRange(current); drawScore(); }
+if (window.Chart) all();
+// テーマ変更時に色を取り直す
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => window.Chart && all());
+new MutationObserver(() => window.Chart && all()).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+</script>
+</body>
+</html>
